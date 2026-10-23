@@ -1,0 +1,21 @@
+{
+  "name": "finesse",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Finesse campus finance management: React web app + Express API + MySQL",
+  "scripts": {
+    "setup": "npm install --prefix backend && npm install --prefix web",
+    "dev": "concurrently -k -n api,web -c cyan,magenta \"npm run dev --prefix backend\" \"npm run dev --prefix web\"",
+    "build": "npm run build --prefix web",
+    "start": "npm start --prefix backend",
+    "test": "npm test --prefix backend && npm test --prefix web",
+    "gen-secret": "node -e \"console.log(require('crypto').randomBytes(48).toString('hex'))\"",
+    "setup:mobile": "npm install --prefix mobile",
+    "mobile": "npm start --prefix mobile",
+    "test:mobile": "npm test --prefix mobile",
+    "check:api": "npm run check:api --prefix mobile --"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  }
+}
