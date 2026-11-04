@@ -17,11 +17,13 @@ export const LIGHT: Palette = {
   border: '#CBD5E1', border_active: '#2BA8BF', overlay: 'rgba(0,0,0,0.4)',
 };
 
+// Lexend: reading text and form inputs.  Orbitron: headings, navigation (tab bar / headers) and buttons.
 export const FONTS = {
-  display: 'Orbitron_900Black',
-  heading: 'Orbitron_700Bold',
-  body: 'SpaceMono_400Regular',
-  bold: 'SpaceMono_700Bold',
+  display: 'Orbitron_900Black', // logo
+  heading: 'Orbitron_700Bold', // titles, headings, navigation headers
+  button: 'Orbitron_700Bold', // buttons and button-like chips
+  body: 'Lexend_400Regular', // normal text and text inputs
+  bold: 'Lexend_600SemiBold', // emphasised normal text, field labels
 } as const;
 
 export const SPACING = { xs: 4, sm: 8, md: 16, lg: 24, xl: 32, xxl: 48 } as const;

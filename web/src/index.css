@@ -15,8 +15,11 @@
 
 @layer base {
   html, body, #root { min-height: 100%; }
-  body { @apply bg-bg-primary font-mono text-sm text-ink-primary antialiased; }
-  h1, h2, h3 { @apply font-display; }
+  /* Lexend for reading text and form fields (inputs, selects and textareas inherit it from <body>). */
+  body { @apply bg-bg-primary font-body text-sm text-ink-primary antialiased; }
+  /* Orbitron for headings, the side panel and buttons. Add the class "font-body" to a button or panel
+     that mostly holds sentences (a clickable card, say) to switch it back to Lexend. */
+  h1, h2, h3, h4, h5, h6, aside, button, summary { @apply font-display; }
   :focus-visible { @apply outline-none ring-2 ring-brand-teal-lt ring-offset-2 ring-offset-bg-primary; }
 }
 

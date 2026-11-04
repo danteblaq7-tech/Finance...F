@@ -99,7 +99,7 @@ export function Button({
       ]}
     >
       {loading ? <ActivityIndicator color={fg} size="small" /> : null}
-      <Text style={{ color: fg, fontFamily: FONTS.bold, fontSize: 12, letterSpacing: 1.2, textTransform: 'uppercase' }}>{title}</Text>
+      <Text style={{ color: fg, fontFamily: FONTS.button, fontSize: 12, letterSpacing: 1.2, textTransform: 'uppercase' }}>{title}</Text>
     </Pressable>
   );
 }
@@ -170,7 +170,7 @@ export function ChipGroup<T extends string>({
               borderColor: active ? colors.border_active : colors.border, backgroundColor: active ? `${colors.accent_teal}33` : colors.bg_tertiary,
             }}
           >
-            <Text style={{ color: active ? colors.accent_teal_lt : colors.text_secondary, fontFamily: FONTS.bold, fontSize: 11 }}>{o.label}</Text>
+            <Text style={{ color: active ? colors.accent_teal_lt : colors.text_secondary, fontFamily: FONTS.button, fontSize: 10 }}>{o.label}</Text>
           </Pressable>
         );
       })}

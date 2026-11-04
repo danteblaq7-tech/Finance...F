@@ -1,8 +1,8 @@
 /** Shown instead of the app when web/.env is missing or still has the template's placeholder values. */
 export function SetupNeeded() {
   return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 560, margin: '12vh auto', padding: 24, lineHeight: 1.5 }}>
-      <h1 style={{ fontSize: 22, marginBottom: 8 }}>Finesse needs its Supabase settings</h1>
+    <div style={{ fontFamily: "Lexend, system-ui, sans-serif", maxWidth: 560, margin: '12vh auto', padding: 24, lineHeight: 1.5 }}>
+      <h1 style={{ fontSize: 22, marginBottom: 8, fontFamily: 'Orbitron, system-ui, sans-serif' }}>Finesse needs its Supabase settings</h1>
       <p>This app signs in and receives live updates through your team&apos;s Supabase project, but it doesn&apos;t know which one yet.</p>
       <ol style={{ paddingLeft: 20 }}>
         <li>Copy <code>web/.env.example</code> to <code>web/.env</code>.</li>

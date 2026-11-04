@@ -147,7 +147,7 @@ function BookingPanel({ ticket }: { ticket: Ticket }) {
               return (
                 <Pressable key={d.date} disabled={d.free === 0} onPress={() => setDate(d.date)} accessibilityRole="button" accessibilityState={{ selected: on, disabled: d.free === 0 }}
                   style={{ borderWidth: 1, borderRadius: RADIUS.md, paddingHorizontal: 12, paddingVertical: 8, opacity: d.free === 0 ? 0.35 : 1, borderColor: on ? colors.border_active : colors.border, backgroundColor: on ? `${colors.accent_teal}33` : colors.bg_tertiary }}>
-                  <Text style={{ color: on ? colors.accent_teal_lt : colors.text_primary, fontFamily: FONTS.bold, fontSize: 12 }}>{formatDay(d.date)}</Text>
+                  <Text style={{ color: on ? colors.accent_teal_lt : colors.text_primary, fontFamily: FONTS.button, fontSize: 11 }}>{formatDay(d.date)}</Text>
                   <Text style={{ color: colors.text_muted, fontFamily: FONTS.body, fontSize: 10 }}>{d.free} free</Text>
                 </Pressable>
               );
@@ -158,7 +158,7 @@ function BookingPanel({ ticket }: { ticket: Ticket }) {
               <Pressable key={s.id} disabled={s.is_booked || book.isPending} accessibilityRole="button" accessibilityLabel={`Book ${formatTime(s.start_time)}`}
                 onPress={() => Alert.alert('Book appointment', `${formatDay(s.start_time)} at ${formatTime(s.start_time)}?`, [{ text: 'Cancel', style: 'cancel' }, { text: 'Book', onPress: () => book.mutate(s.id) }])}
                 style={{ borderWidth: 1, borderColor: colors.border, borderRadius: RADIUS.sm, paddingHorizontal: 10, paddingVertical: 8, opacity: s.is_booked ? 0.3 : 1, backgroundColor: colors.bg_tertiary }}>
-                <Text style={{ color: colors.text_primary, fontFamily: FONTS.body, fontSize: 12, textDecorationLine: s.is_booked ? 'line-through' : 'none' }}>{formatTime(s.start_time)}</Text>
+                <Text style={{ color: colors.text_primary, fontFamily: FONTS.button, fontSize: 11, textDecorationLine: s.is_booked ? 'line-through' : 'none' }}>{formatTime(s.start_time)}</Text>
               </Pressable>
             ))}
           </View>

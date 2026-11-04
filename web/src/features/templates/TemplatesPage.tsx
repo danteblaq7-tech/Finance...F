@@ -64,7 +64,7 @@ export function TemplatesPage() {
       {emails.isLoading ? <Spinner /> : (
         <div className="space-y-2">
           {emails.data?.emails.map((e) => (
-            <button key={e.id} onClick={() => setViewing(e.id)} className="card flex w-full flex-wrap items-center justify-between gap-2 text-left hover:border-line-active">
+            <button key={e.id} onClick={() => setViewing(e.id)} className="card flex w-full flex-wrap items-center justify-between gap-2 text-left font-body hover:border-line-active">
               <span><span className="font-bold">{e.to_name ?? e.to_email}</span> <span className="text-ink-muted">· {e.email_type === 'exam_card' ? `Exam card ${e.card_number ?? ''}` : 'Rejection'} · {formatDateTime(e.sent_at)}</span></span>
               <Badge color={e.delivered ? '#22C55E' : '#F59E0B'}>{e.delivered ? 'DELIVERED' : 'STORED ONLY'}</Badge>
             </button>

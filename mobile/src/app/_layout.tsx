@@ -1,5 +1,5 @@
+import { Lexend_400Regular, Lexend_600SemiBold } from '@expo-google-fonts/lexend';
 import { Orbitron_700Bold, Orbitron_900Black } from '@expo-google-fonts/orbitron';
-import { SpaceMono_400Regular, SpaceMono_700Bold } from '@expo-google-fonts/space-mono';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
@@ -58,7 +58,7 @@ function Gate({ fontsReady }: { fontsReady: boolean }) {
 }
 
 export default function RootLayout() {
-  const [loaded, fontError] = useFonts({ Orbitron_700Bold, Orbitron_900Black, SpaceMono_400Regular, SpaceMono_700Bold });
+  const [loaded, fontError] = useFonts({ Orbitron_700Bold, Orbitron_900Black, Lexend_400Regular, Lexend_600SemiBold });
   return (
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>

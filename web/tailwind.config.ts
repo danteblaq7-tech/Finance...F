@@ -19,8 +19,11 @@ export default {
         },
       },
       fontFamily: {
+        // Orbitron: headings, side panel, buttons.  Lexend: everything else (body text, form inputs).
         display: ['Orbitron', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-        mono: ['"Space Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+        body: ['Lexend', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        sans: ['Lexend', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
       },
       borderRadius: { sm: '8px', md: '12px', lg: '16px', xl: '24px' },
       boxShadow: { teal: '0 4px 12px rgb(43 168 191 / 0.35)', card: '0 2px 8px rgb(0 0 0 / 0.25)' },
