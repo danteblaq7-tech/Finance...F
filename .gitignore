@@ -1,0 +1,8 @@
+node_modules
+dist
+# Secrets: each of backend/, web/ and mobile/ has a .env.example to copy. NEVER commit a real .env.
+.env
+.env.local
+.env.*.local
+*.log
+.DS_Store
