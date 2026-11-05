@@ -5,6 +5,8 @@ import { Badge, Button, ErrorNote, Field, PageHeader, Spinner } from '@/componen
 import { api } from '@/lib/api';
 import type { EmailTemplate, SentEmail } from '@/lib/types';
 import { cn, formatDateTime, renderTemplate } from '@/lib/utils';
+import { TONE } from '@/lib/constants';
+import { useIsDark } from '@/lib/theme';
 
 const SAMPLE = { to_name: 'Amina Hassan', semester: 'Semester 1', academic_year: '2026/2027', card_number: 'FC-A1B2C3D4', reason: 'Your fees are not fully cleared. Outstanding balance: KSh 26,000.' };
 const LABELS = { exam_card: 'Exam card email', rejection: 'Rejection email' } as const;
@@ -13,6 +15,7 @@ function TemplateEditor({ template }: { template: EmailTemplate }) {
   const qc = useQueryClient();
   const [subject, setSubject] = useState(template.subject);
   const [html, setHtml] = useState(template.html);
+  const isDark = useIsDark(); // the code editor follows the light/dark switch
   const dirty = subject !== template.subject || html !== template.html;
   const save = useMutation({
     mutationFn: () => api.put(`/templates/${template.template_key}`, { subject, html }),
@@ -27,7 +30,7 @@ function TemplateEditor({ template }: { template: EmailTemplate }) {
         <div>
           <div className="label">HTML (Monaco editor)</div>
           <div className="overflow-hidden rounded-md border border-line">
-            <Editor height="340px" defaultLanguage="html" theme={document.documentElement.classList.contains('dark') ? 'vs-dark' : 'light'}
+            <Editor height="340px" defaultLanguage="html" theme={isDark ? 'vs-dark' : 'light'}
               value={html} onChange={(v) => setHtml(v ?? '')} options={{ minimap: { enabled: false }, wordWrap: 'on', fontSize: 13, scrollBeyondLastLine: false }} loading={<Spinner label="Loading editor…" />} />
           </div>
         </div>
@@ -66,7 +69,7 @@ export function TemplatesPage() {
           {emails.data?.emails.map((e) => (
             <button key={e.id} onClick={() => setViewing(e.id)} className="card flex w-full flex-wrap items-center justify-between gap-2 text-left font-body hover:border-line-active">
               <span><span className="font-bold">{e.to_name ?? e.to_email}</span> <span className="text-ink-muted">· {e.email_type === 'exam_card' ? `Exam card ${e.card_number ?? ''}` : 'Rejection'} · {formatDateTime(e.sent_at)}</span></span>
-              <Badge color={e.delivered ? '#22C55E' : '#F59E0B'}>{e.delivered ? 'DELIVERED' : 'STORED ONLY'}</Badge>
+              <Badge color={e.delivered ? TONE.green : TONE.amber}>{e.delivered ? 'DELIVERED' : 'STORED ONLY'}</Badge>
             </button>
           ))}
           {viewing && viewed.data && (

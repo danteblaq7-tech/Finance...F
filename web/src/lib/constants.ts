@@ -12,16 +12,27 @@ export const ISSUE_TYPES = [
 
 export const ISSUE_LABELS: Record<string, string> = Object.fromEntries(ISSUE_TYPES.map((t) => [t.value, t.label]));
 
+/** Status colours as CSS variables, so every badge is readable in both light and dark mode (see index.css). */
+export const TONE = {
+  green: 'rgb(var(--c-green))',
+  red: 'rgb(var(--c-red))',
+  amber: 'rgb(var(--c-amber))',
+  teal: 'rgb(var(--c-teal))',
+  purple: 'rgb(var(--c-purple))',
+  orange: 'rgb(var(--accent-orange))',
+  gray: 'rgb(var(--c-gray))',
+} as const;
+
 export const TICKET_STATUS: Record<TicketStatus, { label: string; color: string }> = {
-  pending: { label: 'PENDING', color: '#F59E0B' },
-  in_review: { label: 'IN REVIEW', color: '#2BA8BF' },
-  resolved: { label: 'RESOLVED', color: '#22C55E' },
-  cancelled: { label: 'CANCELLED', color: '#EF4444' },
+  pending: { label: 'PENDING', color: TONE.amber },
+  in_review: { label: 'IN REVIEW', color: TONE.teal },
+  resolved: { label: 'RESOLVED', color: TONE.green },
+  cancelled: { label: 'CANCELLED', color: TONE.red },
 };
 
 export const EXAM_STATUS: Record<ExamCardStatus, { label: string; color: string }> = {
-  pending: { label: 'PROCESSING', color: '#F59E0B' },
-  approved: { label: 'APPROVED', color: '#2BA8BF' },
-  rejected: { label: 'NOT CLEARED', color: '#EF4444' },
-  issued: { label: 'CARD ISSUED', color: '#22C55E' },
+  pending: { label: 'PROCESSING', color: TONE.amber },
+  approved: { label: 'APPROVED', color: TONE.teal },
+  rejected: { label: 'NOT CLEARED', color: TONE.red },
+  issued: { label: 'CARD ISSUED', color: TONE.green },
 };

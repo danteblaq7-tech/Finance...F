@@ -1,3 +1,4 @@
+import { Appearance } from 'react-native';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { getItem, KEYS, setItem } from '@/lib/storage';
 import { DARK, LIGHT, type Palette } from './theme';
@@ -17,11 +18,14 @@ export function useTheme(): ThemeState {
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [isDark, setIsDark] = useState(true); // dark is the Finesse default, same as the web app
+  const [isDark, setIsDark] = useState(true);
 
+  // A saved choice wins. Otherwise follow the phone's own light/dark setting (dark if it can't tell).
   useEffect(() => {
     void getItem(KEYS.theme).then((v) => {
       if (v === 'light') setIsDark(false);
+      else if (v === 'dark') setIsDark(true);
+      else setIsDark(Appearance.getColorScheme() !== 'light');
     });
   }, []);
 

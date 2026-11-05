@@ -4,6 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#0A0D14" />
+    <script>
+      // Apply the saved (or system) light/dark choice before first paint so the page never flashes the wrong theme.
+      try {
+        var t = localStorage.getItem("finesse_theme");
+        var dark = t ? t === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+        document.documentElement.classList.toggle("dark", dark);
+      } catch (e) {}
+    </script>
     <title>Finesse — Campus Finance Management</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

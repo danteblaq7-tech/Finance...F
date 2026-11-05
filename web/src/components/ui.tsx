@@ -54,7 +54,7 @@ export function Badge({ color, children }: { color: string; children: ReactNode 
   return (
     <span
       className="inline-block rounded-sm border px-2 py-0.5 text-[10px] font-bold tracking-widest"
-      style={{ color, borderColor: color, backgroundColor: `${color}1A` }}
+      style={{ color, borderColor: color, backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)` }}
     >
       {children}
     </span>
@@ -63,9 +63,9 @@ export function Badge({ color, children }: { color: string; children: ReactNode 
 
 export function PageHeader({ title, subtitle, action }: { title: string; subtitle?: string; action?: ReactNode }) {
   return (
-    <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+    <div className="mb-8 flex flex-wrap items-start justify-between gap-4 md:mb-10">
       <div>
-        <h1 className="text-xl font-bold tracking-wide">{title}</h1>
+        <h1 className="text-2xl font-bold tracking-wide">{title}</h1>
         {subtitle && <p className="mt-1 text-ink-secondary">{subtitle}</p>}
       </div>
       {action}

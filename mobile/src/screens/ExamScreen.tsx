@@ -123,7 +123,7 @@ function PeriodCard({ period, app, fee }: { period: ExamPeriod; app?: Applicatio
           <AppText variant="heading">{period.title}</AppText>
           <AppText variant="muted">{period.semester}, {period.academic_year}</AppText>
         </View>
-        {app?.revoked_at ? <Badge color="#64748B">REVOKED</Badge> : awaitingReview ? <Badge color="#F59E0B">AWAITING VERIFICATION</Badge> : st ? <Badge color={st.color}>{st.label}</Badge> : null}
+        {app?.revoked_at ? <Badge color="text_muted">REVOKED</Badge> : awaitingReview ? <Badge color="accent_amber">AWAITING VERIFICATION</Badge> : st ? <Badge color={st.color}>{st.label}</Badge> : null}
       </View>
       <AppText variant="muted" style={{ marginVertical: SPACING.sm, fontSize: 11 }}>
         Applications {formatDate(period.application_open)} – {formatDate(period.application_close)}{'\n'}

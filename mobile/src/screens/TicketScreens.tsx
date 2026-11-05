@@ -26,7 +26,7 @@ function TicketRow({ t, staff, onPress }: { t: Ticket; staff?: boolean; onPress:
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
         <AppText variant="bold">{ISSUE_LABELS[t.issue_type] ?? t.issue_type}</AppText>
         <Badge color={s.color}>{s.label}</Badge>
-        {t.priority === 'high' ? <Badge color="#EF4444">HIGH</Badge> : null}
+        {t.priority === 'high' ? <Badge color="accent_red">HIGH</Badge> : null}
       </View>
       <AppText variant="muted" numberOfLines={2} style={{ marginTop: 6 }}>{t.description}</AppText>
       <AppText variant="muted" style={{ marginTop: 6, fontSize: 11 }}>

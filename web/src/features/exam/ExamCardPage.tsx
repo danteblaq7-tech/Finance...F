@@ -5,7 +5,7 @@ import { useRef, useState } from 'react';
 import { Badge, Button, Empty, ErrorNote, PageHeader, Spinner } from '@/components/ui';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { api } from '@/lib/api';
-import { EXAM_STATUS } from '@/lib/constants';
+import { EXAM_STATUS, TONE } from '@/lib/constants';
 import type { Application, ExamPeriod, FeeRecord, FeeStatement } from '@/lib/types';
 import { cardNumber, formatDate, formatDateTime, formatKsh, toDateString } from '@/lib/utils';
 
@@ -108,8 +108,8 @@ function PeriodCard({ period, app, fee }: { period: ExamPeriod; app?: Applicatio
           <p className="text-ink-secondary">{period.semester}, {period.academic_year}</p>
         </div>
         <div className="flex gap-2">
-          {awaitingReview && <Badge color="#F59E0B">AWAITING VERIFICATION</Badge>}
-          {app?.revoked_at ? <Badge color="#64748B">REVOKED</Badge> : st && !awaitingReview && <Badge color={st.color}>{st.label}</Badge>}
+          {awaitingReview && <Badge color={TONE.amber}>AWAITING VERIFICATION</Badge>}
+          {app?.revoked_at ? <Badge color={TONE.gray}>REVOKED</Badge> : st && !awaitingReview && <Badge color={st.color}>{st.label}</Badge>}
         </div>
       </div>
       <p className="text-xs text-ink-muted">

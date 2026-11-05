@@ -2,15 +2,33 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Finesse colour system ─────────────────────────────────────────────────────────────────────
+   All colours are space-separated RGB triplets so Tailwind can add opacity (bg-brand-teal/20).
+   :root = "Daylight" (light) · .dark = "Midnight" (dark). The brand stays teal + orange in both;
+   the light shades of teal/orange/status colours are darkened so text on white passes contrast (WCAG AA). */
 :root {
-  --bg-primary: 240 244 248; --bg-secondary: 255 255 255; --bg-tertiary: 232 237 245; --bg-input: 237 241 247;
-  --text-primary: 15 23 42; --text-secondary: 71 85 105; --text-muted: 100 116 139; --text-label: 100 116 139;
-  --border: 203 213 225; --accent-cyan: 8 145 178;
+  /* surfaces + text */
+  --bg-primary: 243 246 250; --bg-secondary: 255 255 255; --bg-tertiary: 233 239 245; --bg-input: 241 245 249;
+  --text-primary: 11 31 42; --text-secondary: 63 85 102; --text-muted: 91 111 126; --text-label: 91 111 126;
+  --border: 213 222 231;
+  /* brand accents (used as text/borders, so darker on light) */
+  --accent-teal-lt: 19 110 126; --accent-orange: 180 86 14; --accent-cyan: 14 116 144;
+  /* status colours: green = ok · red = danger · amber = pending · teal = info · gray = inactive */
+  --c-purple: 109 40 217; --c-green: 21 128 61; --c-red: 185 28 28; --c-amber: 180 83 9; --c-teal: 19 110 126; --c-gray: 75 85 99;
+  /* side panel: deep teal-navy in light mode, like a classic dashboard rail */
+  --side-bg: 12 47 59; --side-text: 236 244 247; --side-muted: 167 196 206; --side-line: 38 78 92;
+  --side-hover: 20 64 78; --side-active-bg: 24 92 110; --side-active-text: 120 224 240; --side-accent: 245 166 90;
+  --shadow-card: 0 1px 2px rgb(15 42 58 / 0.06), 0 6px 16px rgb(15 42 58 / 0.06);
 }
 .dark {
   --bg-primary: 10 13 20; --bg-secondary: 15 18 32; --bg-tertiary: 21 25 41; --bg-input: 26 31 46;
   --text-primary: 241 245 249; --text-secondary: 168 176 196; --text-muted: 120 131 156; --text-label: 140 148 168;
-  --border: 38 46 66; --accent-cyan: 6 182 212;
+  --border: 38 46 66;
+  --accent-teal-lt: 43 168 191; --accent-orange: 224 123 42; --accent-cyan: 6 182 212;
+  --c-purple: 167 139 250; --c-green: 34 197 94; --c-red: 239 68 68; --c-amber: 245 158 11; --c-teal: 43 168 191; --c-gray: 148 156 170;
+  --side-bg: 11 30 40; --side-text: 241 245 249; --side-muted: 160 184 194; --side-line: 28 58 70;
+  --side-hover: 18 44 56; --side-active-bg: 17 39 53; --side-active-text: 43 168 191; --side-accent: 224 123 42;
+  --shadow-card: 0 2px 8px rgb(0 0 0 / 0.25);
 }
 
 @layer base {
@@ -24,12 +42,37 @@
 }
 
 @layer components {
-  .card { @apply rounded-lg border border-line bg-bg-secondary p-4 shadow-card; }
+  .card { @apply rounded-lg border border-line bg-bg-secondary p-5 shadow-card md:p-6; }
   .label { @apply mb-1 block text-[11px] font-bold uppercase tracking-widest text-ink-label; }
   .input { @apply w-full rounded-md border border-line bg-bg-input px-3 py-2 text-ink-primary placeholder:text-ink-muted focus:border-line-active; }
 }
 
+/* Active sidebar link. Phone: a simple highlighted pill.
+   Desktop: it is the same colour as the content panel and joins it, with curved corners above and below
+   (the box-shadow trick fills each corner with the panel colour). Needs the sidebar flush against the panel. */
+.nav-active { background: rgb(var(--side-active-bg)); color: rgb(var(--side-active-text)); }
+@media (min-width: 768px) {
+  .nav-active { position: relative; background: rgb(var(--bg-secondary)); color: rgb(var(--accent-teal-lt)); }
+  .nav-active::before, .nav-active::after { content: ''; position: absolute; right: 0; width: 28px; height: 28px; pointer-events: none; }
+  .nav-active::before { top: -28px; border-bottom-right-radius: 28px; box-shadow: 12px 12px 0 12px rgb(var(--bg-secondary)); }
+  .nav-active::after { bottom: -28px; border-top-right-radius: 28px; box-shadow: 12px -12px 0 12px rgb(var(--bg-secondary)); }
+  /* Dark mode: a lighter teal outline traces the tab so it stands out from the dark panel. */
+  .dark .nav-active { box-shadow: inset 1px 0 0 var(--nav-edge), inset 0 1px 0 var(--nav-edge), inset 0 -1px 0 var(--nav-edge); }
+  .dark .nav-active::before { border-bottom: 1px solid var(--nav-edge); border-right: 1px solid var(--nav-edge); }
+  .dark .nav-active::after { border-top: 1px solid var(--nav-edge); border-right: 1px solid var(--nav-edge); }
+}
+.dark { --nav-edge: rgb(43 168 191 / 0.7); }
+
+/* Sidebar scrolls when the window is very short, but without a visible scrollbar. */
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+/* Content area: slim scrollbar that matches the theme instead of the chunky default. */
+.app-main { scrollbar-width: thin; scrollbar-color: rgb(var(--border)) transparent; }
+.app-main::-webkit-scrollbar { width: 8px; }
+.app-main::-webkit-scrollbar-thumb { background: rgb(var(--border)); border-radius: 9999px; }
+
 @media print {
+  .app-shell, .app-main { height: auto !important; overflow: visible !important; }
   body * { visibility: hidden; }
   .print-area, .print-area * { visibility: visible; }
   .print-area { position: absolute; inset: 0; margin: 0; border: none; box-shadow: none; color: #000; background: #fff; }

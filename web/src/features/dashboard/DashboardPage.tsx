@@ -5,15 +5,17 @@ import { Link } from 'react-router-dom';
 import { BarChart, LineChart, StackedBar } from '@/components/charts';
 import { Button, ErrorNote, PageHeader, Spinner } from '@/components/ui';
 import { api } from '@/lib/api';
+import { TONE } from '@/lib/constants';
 import type { DailyStat, StatsOverview } from '@/lib/types';
 import { cn, formatKsh } from '@/lib/utils';
 
 const RANGES = [7, 14, 30, 90] as const;
-const TEAL = '#2BA8BF';
-const ORANGE = '#F59E0B';
-const GREEN = '#22C55E';
-const RED = '#EF4444';
-const PURPLE = '#8B5CF6';
+// Theme-aware colours (CSS variables, see index.css) so the charts read well in light and dark mode.
+const TEAL = TONE.teal;
+const ORANGE = TONE.amber;
+const GREEN = TONE.green;
+const RED = TONE.red;
+const PURPLE = TONE.purple;
 
 const shortDay = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString('en-KE', { day: 'numeric', month: 'short' });
 
@@ -121,11 +123,11 @@ export function DashboardPage() {
         <Panel title="Exam card applications">
           <StackedBar title="Applications by status" segments={[
             { name: 'Awaiting verification', color: ORANGE, value: o.exams.awaiting_verification },
-            { name: 'Processing', color: '#EAB308', value: o.exams.pending - o.exams.awaiting_verification },
+            { name: 'Processing', color: TONE.orange, value: o.exams.pending - o.exams.awaiting_verification },
             { name: 'Approved', color: TEAL, value: o.exams.approved },
             { name: 'Card issued', color: GREEN, value: o.exams.issued },
             { name: 'Not cleared', color: RED, value: o.exams.rejected },
-            { name: 'Revoked', color: '#64748B', value: o.exams.revoked },
+            { name: 'Revoked', color: TONE.gray, value: o.exams.revoked },
           ]} />
           <div className="mt-4 flex flex-wrap gap-4 text-xs">
             <Link to="/staff/applications" className="text-brand-teal-lt underline">{o.exams.awaiting_verification} statement(s) awaiting your verification</Link>
