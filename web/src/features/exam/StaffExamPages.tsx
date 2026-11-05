@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { Badge, Button, Empty, ErrorNote, Field, NoteDialog, PageHeader, Spinner } from '@/components/ui';
 import { api } from '@/lib/api';
 import { parseFeeCsv, type FeeImportResult } from '@/lib/csv';
-import { EXAM_STATUS } from '@/lib/constants';
+import { EXAM_STATUS, TONE } from '@/lib/constants';
 import type { Application, ExamCardStatus, ExamPeriod, FeeRecord } from '@/lib/types';
 import { cn, formatDate, formatDateTime, formatKsh } from '@/lib/utils';
 
@@ -115,7 +115,7 @@ export function FeeRecordsPage() {
                   <td className="px-3 py-2">{formatKsh(f.total_fee)}</td>
                   <td className="px-3 py-2">{formatKsh(f.amount_paid)}</td>
                   <td className={cn('px-3 py-2', f.balance > 0 && 'text-brand-red')}>{formatKsh(f.balance)}</td>
-                  <td className="px-3 py-2">{f.is_cleared_for_exam ? <Badge color="#22C55E">YES</Badge> : <Badge color="#EF4444">NO</Badge>}{f.exception_note && <div className="mt-1 text-ink-muted">Exception: {f.exception_note}</div>}</td>
+                  <td className="px-3 py-2">{f.is_cleared_for_exam ? <Badge color={TONE.green}>YES</Badge> : <Badge color={TONE.red}>NO</Badge>}{f.exception_note && <div className="mt-1 text-ink-muted">Exception: {f.exception_note}</div>}</td>
                   <td className="px-3 py-2">{!f.is_cleared_for_exam && <Button variant="secondary" onClick={() => setExcepting(f)}>Grant exception</Button>}</td>
                 </tr>
               ))}
@@ -180,7 +180,7 @@ export function ExamPeriodsPage() {
           {q.data!.periods.map((p) => (
             <div key={p.id} className="card flex flex-wrap items-center justify-between gap-3">
               <div>
-                <div className="flex items-center gap-2 font-bold">{p.title} <Badge color={p.is_active ? '#22C55E' : '#6B7280'}>{p.is_active ? 'ACTIVE' : 'INACTIVE'}</Badge></div>
+                <div className="flex items-center gap-2 font-bold">{p.title} <Badge color={p.is_active ? TONE.green : TONE.gray}>{p.is_active ? 'ACTIVE' : 'INACTIVE'}</Badge></div>
                 <div className="text-xs text-ink-muted">{p.semester}, {p.academic_year} · apply {formatDate(p.application_open)} – {formatDate(p.application_close)} · exams {formatDate(p.exam_start_date)} – {formatDate(p.exam_end_date)}</div>
               </div>
               <Button variant="secondary" loading={toggle.isPending} onClick={() => toggle.mutate(p)}>{p.is_active ? 'Deactivate' : 'Activate'}</Button>

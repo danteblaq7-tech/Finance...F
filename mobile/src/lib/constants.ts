@@ -1,3 +1,4 @@
+import type { Palette } from '@/theme/theme';
 // Shared with the web app (same labels and colours for ticket / exam statuses).
 import type { ExamCardStatus, TicketStatus } from './types';
 
@@ -13,16 +14,16 @@ export const ISSUE_TYPES = [
 
 export const ISSUE_LABELS: Record<string, string> = Object.fromEntries(ISSUE_TYPES.map((t) => [t.value, t.label]));
 
-export const TICKET_STATUS: Record<TicketStatus, { label: string; color: string }> = {
-  pending: { label: 'PENDING', color: '#F59E0B' },
-  in_review: { label: 'IN REVIEW', color: '#2BA8BF' },
-  resolved: { label: 'RESOLVED', color: '#22C55E' },
-  cancelled: { label: 'CANCELLED', color: '#EF4444' },
+export const TICKET_STATUS: Record<TicketStatus, { label: string; color: keyof Palette }> = {
+  pending: { label: 'PENDING', color: 'accent_amber' },
+  in_review: { label: 'IN REVIEW', color: 'accent_teal_lt' },
+  resolved: { label: 'RESOLVED', color: 'accent_green' },
+  cancelled: { label: 'CANCELLED', color: 'accent_red' },
 };
 
-export const EXAM_STATUS: Record<ExamCardStatus, { label: string; color: string }> = {
-  pending: { label: 'PROCESSING', color: '#F59E0B' },
-  approved: { label: 'APPROVED', color: '#2BA8BF' },
-  rejected: { label: 'NOT CLEARED', color: '#EF4444' },
-  issued: { label: 'CARD ISSUED', color: '#22C55E' },
+export const EXAM_STATUS: Record<ExamCardStatus, { label: string; color: keyof Palette }> = {
+  pending: { label: 'PROCESSING', color: 'accent_amber' },
+  approved: { label: 'APPROVED', color: 'accent_teal_lt' },
+  rejected: { label: 'NOT CLEARED', color: 'accent_red' },
+  issued: { label: 'CARD ISSUED', color: 'accent_green' },
 };

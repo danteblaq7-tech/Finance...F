@@ -12,7 +12,7 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { FONTS, SPACING } from '@/theme/theme';
 import { ServerSettings } from './AuthScreens';
 
-const ROLE_COLORS = { student: '#22C55E', staff: '#2BA8BF', admin: '#7C3AED' } as const;
+const ROLE_COLORS = { student: 'accent_green', staff: 'accent_teal_lt', admin: 'accent_purple' } as const;
 
 const pwSchema = z
   .object({

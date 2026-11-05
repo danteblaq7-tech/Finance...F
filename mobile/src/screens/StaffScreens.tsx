@@ -109,7 +109,7 @@ export function FeesScreen() {
                 <AppText variant="bold">{f.student_name || '—'}</AppText>
                 <AppText variant="muted" style={{ fontSize: 11 }}>{f.student_id} · {f.semester}, {f.academic_year}</AppText>
               </View>
-              {f.is_cleared_for_exam ? <Badge color="#22C55E">CLEARED</Badge> : <Badge color="#EF4444">NOT CLEARED</Badge>}
+              {f.is_cleared_for_exam ? <Badge color="accent_green">CLEARED</Badge> : <Badge color="accent_red">NOT CLEARED</Badge>}
             </View>
             <View style={{ flexDirection: 'row', marginTop: SPACING.sm + 2 }}>
               {([['Total', formatKsh(f.total_fee), colors.text_primary], ['Paid', formatKsh(f.amount_paid), colors.text_primary], ['Balance', formatKsh(f.balance), f.balance > 0 ? colors.accent_red : colors.accent_green]] as const).map(([l, v, c]) => (

@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { Badge, Button, Empty, ErrorNote, Field, PageHeader, Spinner } from '@/components/ui';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { api } from '@/lib/api';
-import { ISSUE_LABELS, ISSUE_TYPES, TICKET_STATUS } from '@/lib/constants';
+import { ISSUE_LABELS, ISSUE_TYPES, TICKET_STATUS, TONE } from '@/lib/constants';
 import type { Slot, SlotDate, Ticket, TicketPriority, TicketStatus } from '@/lib/types';
 import { cn, formatDate, formatDateTime, formatTime } from '@/lib/utils';
 
@@ -22,7 +22,7 @@ function TicketRow({ t, staff }: { t: Ticket; staff?: boolean }) {
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-bold">{ISSUE_LABELS[t.issue_type] ?? t.issue_type}</span>
           <Badge color={s.color}>{s.label}</Badge>
-          {t.priority === 'high' && <Badge color="#EF4444">HIGH</Badge>}
+          {t.priority === 'high' && <Badge color={TONE.red}>HIGH</Badge>}
         </div>
         <p className="mt-1 truncate text-ink-secondary">{t.description}</p>
         <p className="mt-1 text-xs text-ink-muted">

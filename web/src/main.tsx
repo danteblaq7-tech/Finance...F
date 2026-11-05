@@ -7,10 +7,11 @@ import { AuthProvider } from './features/auth/AuthProvider';
 import { queryClient } from './lib/queryClient';
 import { SetupNeeded } from './components/SetupNeeded';
 import { supabaseConfigured } from './lib/supabase';
+import { initTheme } from './lib/theme';
 import './index.css';
 
-// Apply the saved theme before first paint (dark is the default).
-if (localStorage.getItem('finesse_theme') === 'light') document.documentElement.classList.remove('dark');
+// Saved choice, else the operating system's setting (index.html applies it before first paint to avoid a flash).
+initTheme();
 
 createRoot(document.getElementById('root')!).render(
   !supabaseConfigured ? (

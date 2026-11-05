@@ -2,15 +2,33 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Finesse colour system ─────────────────────────────────────────────────────────────────────
+   All colours are space-separated RGB triplets so Tailwind can add opacity (bg-brand-teal/20).
+   :root = "Daylight" (light) · .dark = "Midnight" (dark). The brand stays teal + orange in both;
+   the light shades of teal/orange/status colours are darkened so text on white passes contrast (WCAG AA). */
 :root {
-  --bg-primary: 240 244 248; --bg-secondary: 255 255 255; --bg-tertiary: 232 237 245; --bg-input: 237 241 247;
-  --text-primary: 15 23 42; --text-secondary: 71 85 105; --text-muted: 100 116 139; --text-label: 100 116 139;
-  --border: 203 213 225; --accent-cyan: 8 145 178;
+  /* surfaces + text */
+  --bg-primary: 243 246 250; --bg-secondary: 255 255 255; --bg-tertiary: 233 239 245; --bg-input: 241 245 249;
+  --text-primary: 11 31 42; --text-secondary: 63 85 102; --text-muted: 91 111 126; --text-label: 91 111 126;
+  --border: 213 222 231;
+  /* brand accents (used as text/borders, so darker on light) */
+  --accent-teal-lt: 19 110 126; --accent-orange: 180 86 14; --accent-cyan: 14 116 144;
+  /* status colours: green = ok · red = danger · amber = pending · teal = info · gray = inactive */
+  --c-green: 21 128 61; --c-red: 185 28 28; --c-amber: 180 83 9; --c-teal: 19 110 126; --c-gray: 75 85 99;
+  /* side panel: deep teal-navy in light mode, like a classic dashboard rail */
+  --side-bg: 12 47 59; --side-text: 236 244 247; --side-muted: 167 196 206; --side-line: 38 78 92;
+  --side-hover: 20 64 78; --side-active-bg: 24 92 110; --side-active-text: 120 224 240; --side-accent: 245 166 90;
+  --shadow-card: 0 1px 2px rgb(15 42 58 / 0.06), 0 6px 16px rgb(15 42 58 / 0.06);
 }
 .dark {
   --bg-primary: 10 13 20; --bg-secondary: 15 18 32; --bg-tertiary: 21 25 41; --bg-input: 26 31 46;
   --text-primary: 241 245 249; --text-secondary: 168 176 196; --text-muted: 120 131 156; --text-label: 140 148 168;
-  --border: 38 46 66; --accent-cyan: 6 182 212;
+  --border: 38 46 66;
+  --accent-teal-lt: 43 168 191; --accent-orange: 224 123 42; --accent-cyan: 6 182 212;
+  --c-green: 34 197 94; --c-red: 239 68 68; --c-amber: 245 158 11; --c-teal: 43 168 191; --c-gray: 148 156 170;
+  --side-bg: 15 18 32; --side-text: 241 245 249; --side-muted: 168 176 196; --side-line: 38 46 66;
+  --side-hover: 21 25 41; --side-active-bg: 17 39 53; --side-active-text: 43 168 191; --side-accent: 224 123 42;
+  --shadow-card: 0 2px 8px rgb(0 0 0 / 0.25);
 }
 
 @layer base {
