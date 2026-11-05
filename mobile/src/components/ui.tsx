@@ -6,7 +6,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState } from 'react';
 import { useTheme } from '@/theme/ThemeProvider';
-import { FONTS, RADIUS, SPACING, type Palette } from '@/theme/theme';
+import { FONTS, RADIUS, SPACING } from '@/theme/theme';
 
 type Variant = 'body' | 'title' | 'heading' | 'label' | 'muted' | 'bold';
 
@@ -140,10 +140,7 @@ export function TextField({
   );
 }
 
-/** `color` is a palette key (e.g. 'accent_amber'): it picks the right shade for light or dark mode. A raw '#RRGGBB' also works. */
-export function Badge({ color: tone, children }: { color: keyof Palette | (string & {}); children: ReactNode }) {
-  const { colors } = useTheme();
-  const color = (colors as Record<string, string>)[tone] ?? tone;
+export function Badge({ color, children }: { color: string; children: ReactNode }) {
   return (
     <View style={{ borderColor: color, backgroundColor: `${color}1F`, borderWidth: 1, borderRadius: RADIUS.sm, paddingHorizontal: 8, paddingVertical: 2, alignSelf: 'flex-start' }}>
       <Text style={{ color, fontFamily: FONTS.bold, fontSize: 10, letterSpacing: 1.2 }}>{children}</Text>

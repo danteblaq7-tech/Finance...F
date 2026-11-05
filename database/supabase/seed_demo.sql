@@ -78,3 +78,58 @@ begin
   ('a1000000-0000-4000-8000-000000000002','rejection','brian@students.finesse.ac.ke','Brian Kiprop','Semester 1','2026/2027',null,'<h2>Application not cleared</h2><p>Outstanding balance: KSh 26,000.</p>',true,u_brian,'2026-10-13 09:50:00+03')
   on conflict (id) do nothing;
 end $$;
+
+-- ============================================================================
+--  DEMO ONLY: two weeks of past activity so the staff dashboard has something to draw.
+--  Real installs skip this file; real activity is recorded by the API as people use the app.
+-- ============================================================================
+do $$
+declare
+  v_students uuid[];
+  v_staff    uuid;
+  v_names    text[];
+  i int; n int; sid uuid; sname text; created timestamptz; attended timestamptz; st text;
+begin
+  select array_agg(id order by email), array_agg(name order by email) into v_students, v_names
+    from public.profiles where role = 'student' and email like '%@students.finesse.ac.ke';
+  select id into v_staff from public.profiles where email = 'staff@finesse.ac.ke';
+  if v_students is null or v_staff is null then return; end if;
+  n := array_length(v_students, 1);
+
+  for i in 1..13 loop
+    -- who used the app that day (a different subset each day)
+    for k in 1..n loop
+      if (i + k) % 3 <> 0 then
+        insert into public.daily_activity (day, user_id, first_seen_at, last_seen_at, pings)
+        values (public.app_today() - i, v_students[k],
+                ((public.app_today() - i)::timestamp + time '08:15') at time zone 'Africa/Nairobi',
+                ((public.app_today() - i)::timestamp + time '16:40') at time zone 'Africa/Nairobi', 6 + k)
+        on conflict (day, user_id) do nothing;
+      end if;
+    end loop;
+
+    -- one or two tickets a day; older ones were attended and mostly resolved, the last two days are still waiting
+    for k in 1..(1 + i % 2) loop
+      sid     := v_students[1 + (i + k) % n];
+      sname   := v_names[1 + (i + k) % n];
+      created := ((public.app_today() - i)::timestamp + time '09:30' + (k * interval '40 minutes')) at time zone 'Africa/Nairobi';
+      if i <= 2 then
+        insert into public.tickets (id, student_id, student_name, issue_type, description, priority, status, staff_notes, created_at)
+        values (md5('demo-ticket-' || i || '-' || k)::uuid, sid, sname, 'fee_statement',
+                'Demo history: please issue my fee statement for this semester.', 'medium', 'pending', '', created)
+        on conflict (id) do nothing;
+      else
+        attended := created + interval '3 hours';
+        st := case when i % 4 = 0 then 'in_review' else 'resolved' end;
+        insert into public.tickets (id, student_id, student_name, issue_type, description, priority, status, staff_notes,
+                                    assigned_staff_id, created_at, attended_at, resolved_at, closed_at)
+        values (md5('demo-ticket-' || i || '-' || k)::uuid, sid, sname, 'payment_plan',
+                'Demo history: I would like to arrange instalments for my balance.', 'medium', st, 'Handled by finance office.',
+                v_staff, created, attended,
+                case when st = 'resolved' then attended + interval '5 hours' end,
+                case when st = 'resolved' then attended + interval '5 hours' end)
+        on conflict (id) do nothing;
+      end if;
+    end loop;
+  end loop;
+end $$;

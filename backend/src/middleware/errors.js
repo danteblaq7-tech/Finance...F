@@ -14,8 +14,9 @@ export function notFound(_req, res) {
 }
 
 // eslint-disable-next-line no-unused-vars
-export function errorHandler(err, _req, res, _next) {
+export function errorHandler(err, req, res, _next) {
   if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
+  if (err?.type === 'entity.too.large') return res.status(413).json({ error: 'That file is too large.' });
   if (err instanceof ZodError) {
     return res.status(400).json({
       error: 'Validation failed',
@@ -28,6 +29,6 @@ export function errorHandler(err, _req, res, _next) {
   // A malformed id in the URL (not a UUID) can't match anything.
   if (err?.code === '22P02') return res.status(404).json({ error: 'Not found' });
   if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'Invalid JSON body' });
-  console.error(err);
-  res.status(500).json({ error: 'Internal server error' });
+  console.error(JSON.stringify({ t: new Date().toISOString(), id: req?.id, level: 'error', path: req?.originalUrl?.split('?')[0], message: err?.message, stack: err?.stack }));
+  res.status(500).json({ error: 'Internal server error', requestId: req?.id });
 }

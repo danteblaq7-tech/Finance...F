@@ -1,6 +1,6 @@
 {
   "name": "finesse",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "Finesse campus finance management: React web app + React Native app + Express API on a shared Supabase (Postgres + Auth + Realtime) project",
   "scripts": {
@@ -17,7 +17,8 @@
     "setup:mobile": "npm install --prefix mobile",
     "mobile": "npm start --prefix mobile",
     "test:mobile": "npm test --prefix mobile",
-    "check:api": "npm run check:api --prefix mobile --"
+    "check:api": "npm run check:api --prefix mobile --",
+    "test:unit": "npm run test:unit --prefix backend"
   },
   "devDependencies": {
     "concurrently": "^9.0.1"

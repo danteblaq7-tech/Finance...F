@@ -35,9 +35,31 @@ try {
   );
 }
 
+const nodeEnv = process.env.NODE_ENV || 'development';
+const isProd = nodeEnv === 'production';
+
+// In production the API must know exactly which website may call it, and where that website lives (for QR codes and emails).
+if (isProd) {
+  if (!process.env.CORS_ORIGIN?.trim()) fail('CORS_ORIGIN must be set in production: the public URL of the web app, e.g. https://finesse.example.ac.ke');
+  if (!process.env.PUBLIC_WEB_URL?.trim()) fail('PUBLIC_WEB_URL must be set in production: the public URL of the web app. It is encoded in the QR code on printed exam cards.');
+}
+
+const statementMode = (process.env.FEE_STATEMENT_MODE || 'verify').trim().toLowerCase();
+if (!['verify', 'trust'].includes(statementMode)) fail('FEE_STATEMENT_MODE must be "verify" (default, safer) or "trust".');
+
 export const config = {
+  nodeEnv,
+  isProd,
   port: Number(process.env.PORT || 4000),
   corsOrigins: (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map((s) => s.trim()),
+  // Public URL of the web app (no trailing slash). A printed exam card's QR code points at <this>/verify/<code>.
+  publicWebUrl: (process.env.PUBLIC_WEB_URL || process.env.CORS_ORIGIN?.split(',')[0] || 'http://localhost:5173').trim().replace(/\/+$/, ''),
+  // How many reverse proxies sit in front of the API (Render, Railway, Fly, nginx … = 1). Needed for correct client IPs and rate limits.
+  trustProxy: process.env.TRUST_PROXY === undefined || process.env.TRUST_PROXY === '' ? (isProd ? 1 : false) : Number(process.env.TRUST_PROXY),
+  // 'verify': an uploaded statement can DENY on its own but a cleared one waits for the finance office. 'trust': a cleared statement approves at once.
+  feeStatementMode: statementMode,
+  statementBucket: process.env.STATEMENT_BUCKET || 'fee-statements',
+  maxStatementBytes: Number(process.env.MAX_STATEMENT_MB || 5) * 1024 * 1024,
   supabase: { url: supabaseUrl, anonKey, serviceRoleKey },
   databaseUrl,
   // undefined = decide from the host (TLS for anything that isn't localhost). Set DATABASE_SSL=false for a local Postgres.

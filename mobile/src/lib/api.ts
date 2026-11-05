@@ -123,7 +123,46 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return data as T;
 }
 
+const UPLOAD_TIMEOUT_MS = 60_000;
+
+/**
+ * Upload a picked file (fee statement). The file is the raw request body, as documented for expo-file-system:
+ * `new File(uri)` is a Blob that `expo/fetch` can send directly. Both modules are imported lazily so screens
+ * that never upload (and the unit tests) don't load native code.
+ */
+async function upload<T>(path: string, picked: { uri: string; name: string; mimeType?: string | null }): Promise<T> {
+  const token = await accessToken();
+  const [{ fetch: expoFetch }, { File }] = await Promise.all([import('expo/fetch'), import('expo-file-system')]);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
+  let res: Awaited<ReturnType<typeof expoFetch>>;
+  try {
+    res = await expoFetch(`${baseUrl}/api${path}`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': picked.mimeType || 'application/octet-stream',
+        'X-File-Name': encodeURIComponent(picked.name),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: new File(picked.uri),
+    });
+  } catch {
+    throw new ApiError(0, `Can't reach the server at ${baseUrl}. Check your connection and try again.`);
+  } finally {
+    clearTimeout(timer);
+  }
+  const data = (await res.json().catch(() => null)) as { error?: string } | null;
+  if (!res.ok) {
+    if (res.status === 401 && token) unauthorizedHandler?.();
+    throw new ApiError(res.status, data?.error ?? `Upload failed (${res.status})`);
+  }
+  return data as T;
+}
+
 export const api = {
+  upload,
   get: <T>(path: string) => request<T>('GET', path),
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body ?? {}),
   patch: <T>(path: string, body: unknown) => request<T>('PATCH', path, body),

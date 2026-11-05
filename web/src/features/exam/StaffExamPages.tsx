@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { Badge, Button, Empty, ErrorNote, Field, NoteDialog, PageHeader, Spinner } from '@/components/ui';
 import { api } from '@/lib/api';
 import { parseFeeCsv, type FeeImportResult } from '@/lib/csv';
-import { EXAM_STATUS, TONE } from '@/lib/constants';
+import { EXAM_STATUS } from '@/lib/constants';
 import type { Application, ExamCardStatus, ExamPeriod, FeeRecord } from '@/lib/types';
 import { cn, formatDate, formatDateTime, formatKsh } from '@/lib/utils';
 
@@ -14,20 +14,33 @@ import { cn, formatDate, formatDateTime, formatKsh } from '@/lib/utils';
 
 export function ApplicationsPage() {
   const qc = useQueryClient();
-  const [filter, setFilter] = useState<ExamCardStatus | 'all'>('all');
+  const [filter, setFilter] = useState<ExamCardStatus | 'verify' | 'all'>('all');
   const [approving, setApproving] = useState<Application | null>(null);
+  const [revoking, setRevoking] = useState<Application | null>(null);
+  const openStatement = useMutation({
+    mutationFn: (statementId: string) => api.get<{ url: string }>(`/fee-statements/${statementId}/file`),
+    onSuccess: ({ url }) => { window.open(url, '_blank', 'noopener,noreferrer'); },
+  });
+  const revoke = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => api.post(`/applications/${id}/revoke`, { reason }),
+    onSuccess: () => { setRevoking(null); void qc.invalidateQueries({ queryKey: ['applications'] }); },
+  });
   const q = useQuery({ queryKey: ['applications', 'staff'], queryFn: () => api.get<{ applications: Application[] }>('/applications'), refetchInterval: 15_000 });
   const approve = useMutation({
     mutationFn: ({ id, note }: { id: string; note: string }) => api.post(`/applications/${id}/approve`, { note }),
     onSuccess: () => { setApproving(null); void qc.invalidateQueries({ queryKey: ['applications'] }); },
   });
-  const rows = (q.data?.applications ?? []).filter((a) => filter === 'all' || a.status === filter);
+  const all = q.data?.applications ?? [];
+  const awaitingVerification = (a: Application) => a.status === 'pending' && a.decision_source === 'statement';
+  const rows = all.filter((a) => filter === 'all' || (filter === 'verify' ? awaitingVerification(a) : a.status === filter));
   return (
     <>
       <PageHeader title="Exam Card Applications" subtitle="Outcomes are decided automatically from fee records; override with a recorded reason." />
       <div className="mb-4 flex flex-wrap gap-2">
-        {(['all', 'pending', 'approved', 'rejected', 'issued'] as const).map((v) => (
-          <button key={v} onClick={() => setFilter(v)} className={cn('rounded-md border px-3 py-1 text-xs font-bold uppercase', filter === v ? 'border-brand-teal-lt bg-brand-teal/20' : 'border-line text-ink-secondary')}>{v}</button>
+        {(['all', 'verify', 'pending', 'approved', 'rejected', 'issued'] as const).map((v) => (
+          <button key={v} onClick={() => setFilter(v)} className={cn('rounded-md border px-3 py-1 text-xs font-bold uppercase', filter === v ? 'border-brand-teal-lt bg-brand-teal/20' : 'border-line text-ink-secondary')}>
+            {v === 'verify' ? `needs verification (${all.filter(awaitingVerification).length})` : v}
+          </button>
         ))}
       </div>
       {q.isLoading ? <Spinner /> : q.error ? <ErrorNote error={q.error} /> : rows.length === 0 ? <Empty>No applications.</Empty> : (
@@ -35,12 +48,18 @@ export function ApplicationsPage() {
           {rows.map((a) => (
             <div key={a.id} className="card flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2"><span className="font-bold">{a.student_name}</span><Badge color={EXAM_STATUS[a.status].color}>{EXAM_STATUS[a.status].label}</Badge></div>
+                <div className="flex flex-wrap items-center gap-2"><span className="font-bold">{a.student_name}</span><Badge color={EXAM_STATUS[a.status].color}>{EXAM_STATUS[a.status].label}</Badge>{a.decision_source === 'statement' && <Badge color="#8B5CF6">{a.manually_approved_by ? 'STATEMENT · VERIFIED' : 'FROM UPLOADED STATEMENT'}</Badge>}{a.revoked_at && <Badge color="#64748B">REVOKED</Badge>}</div>
                 <div className="text-xs text-ink-muted">{a.student_id} · {a.course} · {a.period_title} · applied {formatDateTime(a.created_at)}</div>
                 <div className="text-xs">Paid {formatKsh(a.amount_paid)} of {formatKsh(a.total_fee)} · balance {formatKsh(a.balance)}</div>
+                {a.status_note && <div className="text-xs text-ink-secondary">{a.status_note}</div>}
                 {a.manual_approval_note && <div className="text-xs text-ink-secondary">Override: {a.manual_approval_note}</div>}
+                {a.revoked_at && <div className="text-xs text-brand-red">Revoked {formatDateTime(a.revoked_at)}: {a.revoked_reason}</div>}
               </div>
-              {['rejected', 'pending'].includes(a.status) && <Button variant="secondary" onClick={() => setApproving(a)}>Approve manually</Button>}
+              <div className="flex flex-wrap gap-2">
+                {a.statement_id && <Button variant="secondary" loading={openStatement.isPending && openStatement.variables === a.statement_id} onClick={() => openStatement.mutate(a.statement_id!)}>View statement</Button>}
+                {['rejected', 'pending'].includes(a.status) && <Button variant="secondary" onClick={() => setApproving(a)}>{awaitingVerification(a) ? 'Verify & approve' : 'Approve manually'}</Button>}
+                {a.status === 'issued' && !a.revoked_at && <Button variant="secondary" onClick={() => setRevoking(a)}>Revoke card</Button>}
+              </div>
             </div>
           ))}
         </div>
@@ -49,7 +68,11 @@ export function ApplicationsPage() {
         <NoteDialog title={`Approve ${approving.student_name}?`} description="This overrides the automatic decision. Your name and reason are recorded." confirmLabel="Approve" busy={approve.isPending}
           onCancel={() => setApproving(null)} onConfirm={(note) => approve.mutate({ id: approving.id, note })} />
       )}
-      <ErrorNote error={approve.error} />
+      {revoking && (
+        <NoteDialog title={`Revoke the card of ${revoking.student_name}?`} description="The QR code on the printed card will show REVOKED and the student can no longer print it. Your name and reason are recorded." confirmLabel="Revoke" busy={revoke.isPending}
+          onCancel={() => setRevoking(null)} onConfirm={(reason) => revoke.mutate({ id: revoking.id, reason })} />
+      )}
+      <ErrorNote error={approve.error ?? revoke.error ?? openStatement.error} />
     </>
   );
 }
@@ -115,7 +138,7 @@ export function FeeRecordsPage() {
                   <td className="px-3 py-2">{formatKsh(f.total_fee)}</td>
                   <td className="px-3 py-2">{formatKsh(f.amount_paid)}</td>
                   <td className={cn('px-3 py-2', f.balance > 0 && 'text-brand-red')}>{formatKsh(f.balance)}</td>
-                  <td className="px-3 py-2">{f.is_cleared_for_exam ? <Badge color={TONE.green}>YES</Badge> : <Badge color={TONE.red}>NO</Badge>}{f.exception_note && <div className="mt-1 text-ink-muted">Exception: {f.exception_note}</div>}</td>
+                  <td className="px-3 py-2">{f.is_cleared_for_exam ? <Badge color="#22C55E">YES</Badge> : <Badge color="#EF4444">NO</Badge>}{f.exception_note && <div className="mt-1 text-ink-muted">Exception: {f.exception_note}</div>}</td>
                   <td className="px-3 py-2">{!f.is_cleared_for_exam && <Button variant="secondary" onClick={() => setExcepting(f)}>Grant exception</Button>}</td>
                 </tr>
               ))}
@@ -142,6 +165,7 @@ const periodSchema = z.object({
   applicationClose: z.string().min(1, 'Required'),
   examStartDate: z.string().min(1, 'Required'),
   examEndDate: z.string().min(1, 'Required'),
+  minPaymentPercent: z.string().regex(/^\d{1,3}$/, 'Enter 1 to 100').refine((v) => Number(v) >= 1 && Number(v) <= 100, 'Enter 1 to 100'),
 }).refine((p) => p.applicationClose >= p.applicationOpen, { message: 'Must be on/after the open date', path: ['applicationClose'] })
   .refine((p) => p.examEndDate >= p.examStartDate, { message: 'Must be on/after the start date', path: ['examEndDate'] });
 type PeriodValues = z.infer<typeof periodSchema>;
@@ -149,10 +173,10 @@ type PeriodValues = z.infer<typeof periodSchema>;
 export function ExamPeriodsPage() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['periods'], queryFn: () => api.get<{ periods: ExamPeriod[] }>('/exam-periods') });
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<PeriodValues>({ resolver: zodResolver(periodSchema) });
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<PeriodValues>({ resolver: zodResolver(periodSchema), defaultValues: { minPaymentPercent: '100' } });
   const create = useMutation({
-    mutationFn: (v: PeriodValues) => api.post('/exam-periods', { ...v, minPaymentPercent: 100, isActive: true }),
-    onSuccess: () => { reset(); void qc.invalidateQueries({ queryKey: ['periods'] }); },
+    mutationFn: (v: PeriodValues) => api.post('/exam-periods', { ...v, minPaymentPercent: Number(v.minPaymentPercent), isActive: true }),
+    onSuccess: () => { reset({ minPaymentPercent: '100' }); void qc.invalidateQueries({ queryKey: ['periods'] }); },
   });
   const toggle = useMutation({
     mutationFn: (p: ExamPeriod) => api.patch(`/exam-periods/${p.id}`, { isActive: !p.is_active }),
@@ -171,6 +195,7 @@ export function ExamPeriodsPage() {
           <Field label="Applications close" error={errors.applicationClose?.message}><input type="date" className="input" {...register('applicationClose')} /></Field>
           <Field label="Exams start" error={errors.examStartDate?.message}><input type="date" className="input" {...register('examStartDate')} /></Field>
           <Field label="Exams end" error={errors.examEndDate?.message}><input type="date" className="input" {...register('examEndDate')} /></Field>
+          <Field label="Minimum fees paid (%)" hint="100 = fully cleared. 70 = students who paid at least 70% are cleared." error={errors.minPaymentPercent?.message}><input inputMode="numeric" className="input" {...register('minPaymentPercent')} /></Field>
         </div>
         <ErrorNote error={create.error} />
         <Button type="submit" loading={create.isPending}>Create period</Button>
@@ -180,8 +205,8 @@ export function ExamPeriodsPage() {
           {q.data!.periods.map((p) => (
             <div key={p.id} className="card flex flex-wrap items-center justify-between gap-3">
               <div>
-                <div className="flex items-center gap-2 font-bold">{p.title} <Badge color={p.is_active ? TONE.green : TONE.gray}>{p.is_active ? 'ACTIVE' : 'INACTIVE'}</Badge></div>
-                <div className="text-xs text-ink-muted">{p.semester}, {p.academic_year} · apply {formatDate(p.application_open)} – {formatDate(p.application_close)} · exams {formatDate(p.exam_start_date)} – {formatDate(p.exam_end_date)}</div>
+                <div className="flex items-center gap-2 font-bold">{p.title} <Badge color={p.is_active ? '#22C55E' : '#6B7280'}>{p.is_active ? 'ACTIVE' : 'INACTIVE'}</Badge></div>
+                <div className="text-xs text-ink-muted">{p.semester}, {p.academic_year} · apply {formatDate(p.application_open)} – {formatDate(p.application_close)} · exams {formatDate(p.exam_start_date)} – {formatDate(p.exam_end_date)} · clears at {p.min_payment_percent}% paid</div>
               </div>
               <Button variant="secondary" loading={toggle.isPending} onClick={() => toggle.mutate(p)}>{p.is_active ? 'Deactivate' : 'Activate'}</Button>
             </div>

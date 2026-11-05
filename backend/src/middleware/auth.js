@@ -1,5 +1,6 @@
 import { queryOne } from '../db.js';
 import { supabaseAdmin } from '../supabase.js';
+import { trackActivity } from './activity.js';
 import { HttpError } from './errors.js';
 
 export const PUBLIC_USER_COLUMNS =
@@ -43,6 +44,7 @@ export async function requireAuth(req, _res, next) {
     const user = await queryOne(`SELECT ${PUBLIC_USER_COLUMNS} FROM profiles WHERE id = $1`, [id]);
     if (!user) throw new HttpError(401, 'Account no longer exists.');
     req.user = user;
+    trackActivity(user.id);
     next();
   } catch (e) {
     next(e);

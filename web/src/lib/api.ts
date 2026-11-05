@@ -42,7 +42,43 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return data as T;
 }
 
+/** Send a file as the raw request body (used for fee statements). The server checks what the file really is. */
+async function upload<T>(path: string, file: File): Promise<T> {
+  const token = await accessToken();
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}/api${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': file.type || 'application/octet-stream', 'X-File-Name': encodeURIComponent(file.name), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: file,
+    });
+  } catch {
+    throw new ApiError(0, 'Cannot reach the Finesse API. Check your connection and try again.');
+  }
+  const data = (await res.json().catch(() => null)) as { error?: string; details?: ApiError['details'] } | null;
+  if (!res.ok) {
+    if (res.status === 401 && token) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+    throw new ApiError(res.status, data?.error ?? `Upload failed (${res.status})`, data?.details);
+  }
+  return data as T;
+}
+
+/** For the public card-verification page: no sign-in, no token. */
+async function publicGet<T>(path: string): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}/api${path}`);
+  } catch {
+    throw new ApiError(0, 'Cannot reach the Finesse API. Check your connection and try again.');
+  }
+  const data = (await res.json().catch(() => null)) as { error?: string } | null;
+  if (!res.ok) throw new ApiError(res.status, data?.error ?? `Request failed (${res.status})`);
+  return data as T;
+}
+
 export const api = {
+  upload,
+  publicGet,
   get: <T>(path: string) => request<T>('GET', path),
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body ?? {}),
   patch: <T>(path: string, body: unknown) => request<T>('PATCH', path, body),

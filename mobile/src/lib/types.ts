@@ -100,6 +100,56 @@ export interface Application {
   manual_approval_note: string | null;
   card_issued_at: string | null;
   created_at: string;
+  min_payment_percent: number;
+  decision_source: 'fee_record' | 'statement' | 'manual';
+  status_note: string | null;
+  statement_id: string | null;
+  verification_code: string | null;
+  revoked_at: string | null;
+  revoked_reason: string | null;
+  manually_approved_by: string | null;
+}
+
+export interface FeeStatement {
+  id: string;
+  student_id: string;
+  academic_year: string;
+  semester: string;
+  file_name: string;
+  total_fee: number | null;
+  amount_paid: number | null;
+  balance: number | null;
+  flags: string[];
+  outcome: 'cleared' | 'not_cleared' | 'needs_review' | 'official_record';
+  created_at: string;
+}
+
+export interface StatsOverview {
+  generatedAt: string;
+  people: { students_total: number; new_students_today: number; active_today: number; active_7d: number; active_30d: number; online_now: number };
+  tickets: {
+    total: number; pending: number; in_review: number; resolved: number; cancelled: number; awaiting_attention: number;
+    raised_today: number; attended_today: number; resolved_today: number;
+    avg_first_response_hours: number | null; oldest_waiting_hours: number | null;
+  };
+  exams: {
+    total: number; pending: number; awaiting_verification: number; approved: number; rejected: number; issued: number; revoked: number;
+    applied_today: number; issued_today: number;
+  };
+  fees: { students: number; cleared: number; not_cleared: number; billed: number; collected: number; outstanding: number; collectionRate: number | null };
+  statements: { total: number; uploaded_today: number; needs_review: number };
+}
+
+export interface DailyStat {
+  day: string;
+  active_students: number;
+  tickets_raised: number;
+  tickets_attended: number;
+  tickets_resolved: number;
+  tickets_pending: number;
+  applications: number;
+  cards_issued: number;
+  statements_uploaded: number;
 }
 
 export interface EmailTemplate {

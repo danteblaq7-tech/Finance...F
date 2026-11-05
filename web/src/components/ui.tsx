@@ -54,7 +54,7 @@ export function Badge({ color, children }: { color: string; children: ReactNode 
   return (
     <span
       className="inline-block rounded-sm border px-2 py-0.5 text-[10px] font-bold tracking-widest"
-      style={{ color, borderColor: color, backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)` }}
+      style={{ color, borderColor: color, backgroundColor: `${color}1A` }}
     >
       {children}
     </span>

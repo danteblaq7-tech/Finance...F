@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { View } from 'react-native';
+import { Linking, View } from 'react-native';
 import { ListScreen } from '@/components/ListScreen';
 import { AppText, Badge, Button, Card, ChipGroup, ErrorNote, Header, NoteModal, TextField } from '@/components/ui';
 import { api } from '@/lib/api';
@@ -12,7 +12,7 @@ import { SPACING } from '@/theme/theme';
 
 // ── Exam applications ────────────────────────────────────────
 
-type AppFilter = ExamCardStatus | 'all';
+type AppFilter = ExamCardStatus | 'verify' | 'all';
 
 export function ApplicationsScreen() {
   const qc = useQueryClient();
@@ -26,9 +26,20 @@ export function ApplicationsScreen() {
       void qc.invalidateQueries({ queryKey: ['applications'] });
     },
   });
-  const rows = (q.data?.applications ?? []).filter((a) => filter === 'all' || a.status === filter);
+  const awaitingVerification = (a: Application) => a.status === 'pending' && a.decision_source === 'statement';
+  const all = q.data?.applications ?? [];
+  const rows = all.filter((a) => filter === 'all' || (filter === 'verify' ? awaitingVerification(a) : a.status === filter));
+  const openStatement = useMutation({
+    mutationFn: (statementId: string) => api.get<{ url: string }>(`/fee-statements/${statementId}/file`),
+    onSuccess: ({ url }) => { void Linking.openURL(url); },
+  });
+  const [revoking, setRevoking] = useState<Application | null>(null);
+  const revoke = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => api.post(`/applications/${id}/revoke`, { reason }),
+    onSuccess: () => { setRevoking(null); void qc.invalidateQueries({ queryKey: ['applications'] }); },
+  });
   const filters: { label: string; value: AppFilter }[] = [
-    { label: 'All', value: 'all' }, { label: 'Pending', value: 'pending' }, { label: 'Approved', value: 'approved' },
+    { label: 'All', value: 'all' }, { label: `Needs verification (${all.filter(awaitingVerification).length})`, value: 'verify' }, { label: 'Pending', value: 'pending' }, { label: 'Approved', value: 'approved' },
     { label: 'Rejected', value: 'rejected' }, { label: 'Issued', value: 'issued' },
   ];
   return (
@@ -38,7 +49,7 @@ export function ApplicationsScreen() {
           <View>
             <Header title="Exam Applications" subtitle="Decided automatically from fee records. Override with a recorded reason." />
             <View style={{ marginBottom: SPACING.md }}><ChipGroup<AppFilter> options={filters} value={filter} onChange={setFilter} /></View>
-            <ErrorNote error={approve.error} />
+            <ErrorNote error={approve.error ?? revoke.error ?? openStatement.error} />
           </View>
         }
         data={rows}
@@ -48,12 +59,18 @@ export function ApplicationsScreen() {
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
               <AppText variant="bold">{a.student_name}</AppText>
               <Badge color={EXAM_STATUS[a.status].color}>{EXAM_STATUS[a.status].label}</Badge>
+              {a.decision_source === 'statement' ? <Badge color="#8B5CF6">{a.manually_approved_by ? 'STATEMENT · VERIFIED' : 'UPLOADED STATEMENT'}</Badge> : null}
+              {a.revoked_at ? <Badge color="#64748B">REVOKED</Badge> : null}
             </View>
             <AppText variant="muted" style={{ marginTop: 4, fontSize: 11 }}>{a.student_id} · {a.course ?? '—'}</AppText>
             <AppText variant="muted" style={{ fontSize: 11 }}>{a.period_title} · applied {formatDateTime(a.created_at)}</AppText>
             <AppText style={{ marginTop: 6, fontSize: 12 }}>Paid {formatKsh(a.amount_paid)} of {formatKsh(a.total_fee)} · balance {formatKsh(a.balance)}</AppText>
+            {a.status_note ? <AppText variant="muted" style={{ marginTop: 4 }}>{a.status_note}</AppText> : null}
             {a.manual_approval_note ? <AppText variant="muted" style={{ marginTop: 4 }}>Override: {a.manual_approval_note}</AppText> : null}
-            {['rejected', 'pending'].includes(a.status) ? <Button title="Approve manually" variant="secondary" style={{ marginTop: SPACING.sm + 4 }} onPress={() => setApproving(a)} /> : null}
+            {a.revoked_at ? <AppText variant="muted" style={{ marginTop: 4 }}>Revoked {formatDateTime(a.revoked_at)}: {a.revoked_reason}</AppText> : null}
+            {a.statement_id ? <Button title="View statement" variant="secondary" style={{ marginTop: SPACING.sm + 4 }} onPress={() => openStatement.mutate(a.statement_id!)} /> : null}
+            {['rejected', 'pending'].includes(a.status) ? <Button title={awaitingVerification(a) ? 'Verify & approve' : 'Approve manually'} variant="secondary" style={{ marginTop: SPACING.sm }} onPress={() => setApproving(a)} /> : null}
+            {a.status === 'issued' && !a.revoked_at ? <Button title="Revoke card" variant="secondary" style={{ marginTop: SPACING.sm }} onPress={() => setRevoking(a)} /> : null}
           </Card>
         )}
         loading={q.isLoading}
@@ -70,6 +87,15 @@ export function ApplicationsScreen() {
         busy={approve.isPending}
         onCancel={() => setApproving(null)}
         onConfirm={(note) => approving && approve.mutate({ id: approving.id, note })}
+      />
+      <NoteModal
+        visible={!!revoking}
+        title={`Revoke the card of ${revoking?.student_name ?? ''}?`}
+        description="Invigilators will see REVOKED and the student can no longer show the card. Your name and reason are recorded."
+        confirmLabel="Revoke"
+        busy={revoke.isPending}
+        onCancel={() => setRevoking(null)}
+        onConfirm={(reason) => revoking && revoke.mutate({ id: revoking.id, reason })}
       />
     </>
   );
@@ -109,7 +135,7 @@ export function FeesScreen() {
                 <AppText variant="bold">{f.student_name || '—'}</AppText>
                 <AppText variant="muted" style={{ fontSize: 11 }}>{f.student_id} · {f.semester}, {f.academic_year}</AppText>
               </View>
-              {f.is_cleared_for_exam ? <Badge color="accent_green">CLEARED</Badge> : <Badge color="accent_red">NOT CLEARED</Badge>}
+              {f.is_cleared_for_exam ? <Badge color="#22C55E">CLEARED</Badge> : <Badge color="#EF4444">NOT CLEARED</Badge>}
             </View>
             <View style={{ flexDirection: 'row', marginTop: SPACING.sm + 2 }}>
               {([['Total', formatKsh(f.total_fee), colors.text_primary], ['Paid', formatKsh(f.amount_paid), colors.text_primary], ['Balance', formatKsh(f.balance), f.balance > 0 ? colors.accent_red : colors.accent_green]] as const).map(([l, v, c]) => (

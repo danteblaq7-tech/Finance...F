@@ -3,7 +3,9 @@ import { z } from 'zod';
 import { bind, query, queryOne } from '../db.js';
 import { isStaff, requireAuth, requireStaff, requireStudent } from '../middleware/auth.js';
 import { asyncHandler, HttpError } from '../middleware/errors.js';
+import { config } from '../config.js';
 import { renderTemplate, sendEmail } from '../mailer.js';
+import { APP_SELECT, canReplace, cardNumber, loadOpenPeriod, newVerificationCode, sendRejectionEmail } from '../services/applications.js';
 
 export const periodsRouter = Router();
 export const applicationsRouter = Router();
@@ -67,11 +69,6 @@ periodsRouter.patch(
 
 // ── Applications ─────────────────────────────────────────────
 
-const APP_SELECT = `SELECT a.*, p.title AS period_title, p.exam_start_date, p.exam_end_date
-                      FROM exam_card_applications a JOIN exam_periods p ON p.id = a.exam_period_id`;
-
-const cardNumber = (id) => `FC-${id.replace(/-/g, '').slice(0, 8).toUpperCase()}`;
-
 async function getTemplate(key) {
   return queryOne('SELECT subject, html FROM email_templates WHERE template_key = $1', [key]);
 }
@@ -101,17 +98,13 @@ applicationsRouter.post(
     const user = req.user;
     if (!user.student_id) throw new HttpError(400, 'Your profile has no student ID. Contact the finance office.');
 
-    const period = await queryOne('SELECT * FROM exam_periods WHERE id = $1', [examPeriodId]);
-    if (!period || !period.is_active) throw new HttpError(404, 'That exam period is not available.');
-    const today = await queryOne('SELECT app_today() AS d');
-    if (today.d < period.application_open) throw new HttpError(409, `Applications open on ${period.application_open}.`);
-    if (today.d > period.application_close) throw new HttpError(409, `Applications closed on ${period.application_close}.`);
+    const period = await loadOpenPeriod(examPeriodId);
 
     const existing = await queryOne(
-      'SELECT id, status FROM exam_card_applications WHERE student_uid = $1 AND exam_period_id = $2',
+      'SELECT id, status, decision_source FROM exam_card_applications WHERE student_uid = $1 AND exam_period_id = $2',
       [user.id, period.id],
     );
-    if (existing && existing.status !== 'rejected') throw new HttpError(409, 'You have already applied for this exam period.');
+    if (existing && !canReplace(existing)) throw new HttpError(409, 'You have already applied for this exam period.');
     // A rejected student who has since paid may re-apply: replace the old attempt.
     if (existing) await query('DELETE FROM exam_card_applications WHERE id = $1', [existing.id]);
 
@@ -124,17 +117,7 @@ applicationsRouter.post(
     );
     const app = await queryOne(`${APP_SELECT} WHERE a.id = $1`, [id]);
 
-    if (app.status === 'rejected') {
-      const tpl = await getTemplate('rejection');
-      if (tpl) {
-        const vars = { to_name: app.student_name, semester: app.semester, academic_year: app.academic_year, reason: app.rejection_reason };
-        await sendEmail({
-          type: 'rejection', toEmail: app.email, toName: app.student_name, semester: app.semester,
-          academicYear: app.academic_year, subject: renderTemplate(tpl.subject, vars),
-          html: renderTemplate(tpl.html, vars), createdBy: user.id,
-        });
-      }
-    }
+    if (app.status === 'rejected') await sendRejectionEmail(app, user.id);
     res.status(201).json({ application: app });
   }),
 );
@@ -150,7 +133,8 @@ applicationsRouter.post(
     if (!['pending', 'rejected'].includes(app.status)) throw new HttpError(409, `Application is already ${app.status}.`);
     await query(
       `UPDATE exam_card_applications
-          SET status = 'approved', rejection_reason = NULL, manually_approved_by = $1, manual_approval_note = $2
+          SET status = 'approved', rejection_reason = NULL, status_note = NULL, decision_source = 'manual',
+              manually_approved_by = $1, manual_approval_note = $2
         WHERE id = $3`,
       [req.user.id, note, app.id],
     );
@@ -167,20 +151,41 @@ applicationsRouter.post(
     if (!app) throw new HttpError(404, 'Application not found.');
     if (app.status === 'issued') return res.json({ application: app });
     if (app.status !== 'approved') throw new HttpError(409, 'Only an approved application can be issued.');
+    if (app.revoked_at) throw new HttpError(409, 'This card has been revoked. Contact the finance office.');
 
     const tpl = await getTemplate('exam_card');
     if (!tpl) throw new HttpError(500, 'Exam card email template is missing.');
     const num = cardNumber(app.id);
-    const vars = { to_name: app.student_name, semester: app.semester, academic_year: app.academic_year, card_number: num };
+    const code = newVerificationCode();
+    const vars = {
+      to_name: app.student_name, semester: app.semester, academic_year: app.academic_year, card_number: num,
+      verify_url: `${config.publicWebUrl}/verify/${code}`,
+    };
     const delivery = await sendEmail({
       type: 'exam_card', toEmail: app.email, toName: app.student_name, semester: app.semester,
       academicYear: app.academic_year, cardNumber: num, subject: renderTemplate(tpl.subject, vars),
       html: renderTemplate(tpl.html, vars), createdBy: req.user.id,
     });
     await query(
-      "UPDATE exam_card_applications SET status = 'issued', card_issued_at = now(), email_sent_at = now() WHERE id = $1",
-      [app.id],
+      "UPDATE exam_card_applications SET status = 'issued', card_issued_at = now(), email_sent_at = now(), verification_code = COALESCE(verification_code, $2) WHERE id = $1",
+      [app.id, code],
     );
     res.json({ application: await queryOne(`${APP_SELECT} WHERE a.id = $1`, [app.id]), cardNumber: num, emailDelivered: delivery.delivered });
+  }),
+);
+
+// Staff: withdraw an issued card (e.g. the statement turned out to be forged, or a payment bounced).
+// The card's QR code then shows "revoked" to invigilators, and the student cannot print it any more.
+applicationsRouter.post(
+  '/:id/revoke',
+  requireStaff,
+  asyncHandler(async (req, res) => {
+    const { reason } = z.object({ reason: z.string().trim().min(5, 'Please record a reason.').max(1000) }).parse(req.body);
+    const app = await queryOne('SELECT id, status, revoked_at FROM exam_card_applications WHERE id = $1', [req.params.id]);
+    if (!app) throw new HttpError(404, 'Application not found.');
+    if (app.status !== 'issued') throw new HttpError(409, 'Only an issued card can be revoked.');
+    if (app.revoked_at) throw new HttpError(409, 'This card is already revoked.');
+    await query('UPDATE exam_card_applications SET revoked_at = now(), revoked_by = $1, revoked_reason = $2 WHERE id = $3', [req.user.id, reason, app.id]);
+    res.json({ application: await queryOne(`${APP_SELECT} WHERE a.id = $1`, [app.id]) });
   }),
 );

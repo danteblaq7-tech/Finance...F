@@ -56,7 +56,13 @@ async function createDemoUsers() {
   }
 }
 
+// The demo seed creates logins with a publicly known password, and reset DROPS every table: never in production.
+function refuseInProduction(what) {
+  if (process.env.NODE_ENV === 'production') throw new Error(`Refusing to ${what} while NODE_ENV=production.`);
+}
+
 async function seed() {
+  refuseInProduction('load demo data');
   await createDemoUsers();
   console.log('→ Loading demo data (database/supabase/seed_demo.sql) …');
   await runFile('seed_demo.sql');
@@ -64,6 +70,7 @@ async function seed() {
 }
 
 async function reset() {
+  refuseInProduction('reset the database');
   const { dbHost } = describeTarget();
   console.log(`⚠  This will DROP every Finesse table in the database at ${dbHost}.`);
   console.log('   The whole team shares this database, so everyone loses their data. Supabase Auth users are not deleted.');

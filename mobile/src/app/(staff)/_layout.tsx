@@ -8,6 +8,7 @@ export default function StaffTabs() {
   const nav = useNavOptions();
   return (
     <Tabs screenOptions={nav.tabs}>
+      <Tabs.Screen name="dashboard" options={{ title: 'Dashboard', tabBarIcon: tabIcon('stats-chart-outline') }} />
       <Tabs.Screen name="queue" options={{ title: 'Queue', tabBarIcon: tabIcon('file-tray-full-outline') }} />
       <Tabs.Screen name="applications" options={{ title: 'Exam Cards', tabBarIcon: tabIcon('school-outline') }} />
       <Tabs.Screen name="fees" options={{ title: 'Fees', tabBarIcon: tabIcon('cash-outline') }} />

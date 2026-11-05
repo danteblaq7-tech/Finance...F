@@ -85,11 +85,19 @@ describe('student: exam card', () => {
       'POST /applications': { status: 201, body: { application: application() } },
     });
 
-  it('lets a student with no application apply', async () => {
-    const api = await setup(null);
+  it('lets a student with an official fee record apply', async () => {
+    const api = await setup(null, { id: 'f1', academic_year: '2026/2027', semester: 'Semester 1', total_fee: 80000, amount_paid: 80000, balance: 0 });
     await mount('/exam');
     await fireEvent.press(await screen.findByText('Apply for exam card'));
     await waitFor(() => expect(api.last('POST /applications')?.body).toEqual({ examPeriodId: 'p1' }));
+  });
+
+  it('asks a student with no fee record to upload their fee statement', async () => {
+    await setup(null);
+    await mount('/exam');
+    expect(await screen.findByText('Upload your fee statement')).toBeTruthy();
+    expect(screen.getByText('Choose statement file')).toBeTruthy();
+    expect(screen.queryByText('Apply for exam card')).toBeNull();
   });
 
   it('explains a rejection with the balance and offers Re-apply', async () => {

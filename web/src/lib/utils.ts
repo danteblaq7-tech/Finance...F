@@ -43,4 +43,4 @@ export function renderTemplate(template: string, vars: Record<string, string | n
 
 export const cardNumber = (applicationId: string): string => `FC-${applicationId.replace(/-/g, '').slice(0, 8).toUpperCase()}`;
 
-export const homeFor = (role: UserRole): string => (role === 'student' ? '/tickets' : '/staff/queue');
+export const homeFor = (role: UserRole): string => (role === 'student' ? '/tickets' : '/staff/dashboard');

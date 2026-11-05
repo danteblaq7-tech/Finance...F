@@ -284,6 +284,7 @@ otherwise it is readable and writable by the whole internet. Put the change in `
 ## 10. Tests
 
 ```bash
+npm run test:unit      # backend unit tests: statement parser, clearance rules, upload route. No database or secrets needed (Node 22+)
 npm test               # backend integration tests + web unit/component tests
 npm run test:mobile    # mobile tests (no phone needed)
 cd web && npm run typecheck && npm run lint
@@ -318,10 +319,78 @@ validation errors add `details: [{ field, message }]`.
 | `POST /exam-periods` · `PATCH /exam-periods/:id` | staff | create · activate/deactivate |
 | `GET /applications` · `POST /applications` | student: own · staff: all | list · apply (students) |
 | `POST /applications/:id/approve` | staff | manual approval with a reason |
-| `POST /applications/:id/issue` | student (own, approved) | issue card + store/send email |
+| `POST /applications/:id/issue` | student (own, approved) | issue card (+ QR verification code) + store/send email |
+| `POST /applications/:id/revoke` | staff | withdraw an issued card, with a reason |
+| `POST /fee-statements?examPeriodId=` | student | **upload a fee statement** (the file is the request body: PDF, CSV/TXT or photo). Returns the decision |
+| `GET /fee-statements/mine` · `GET /fee-statements` | student · staff | uploads |
+| `GET /fee-statements/:id/file` | owner or staff | 5-minute signed link to the original file |
+| `GET /verify/:code` | **anyone** | is this printed exam card genuine? (rate-limited; powers the QR code) |
+| `GET /stats/overview` · `GET /stats/daily?days=14` | staff | dashboard numbers |
 | `GET/PUT /templates` · `GET /emails` | staff | email templates · sent-email outbox |
 
-## 12. Going beyond localhost
+## 12. Fee statements, exam-card verification and the dashboard
+
+### How a student gets (or is denied) an exam card
+
+1. **If the finance office has imported an official fee record** for the student and term (*Fee Records*), the student just presses
+   *Apply*. The database decides from that record. An official record always wins.
+2. **Otherwise the student uploads their fee statement** (PDF or CSV from the student portal; a photo is accepted but is read by a person).
+   The API reads the text, extracts *total fees / amount paid / balance*, checks that **the statement names this student's ID** and is
+   **for this academic year**, keeps the original file in a private Supabase Storage bucket, and decides:
+
+| What the statement shows | `FEE_STATEMENT_MODE=verify` (default) | `FEE_STATEMENT_MODE=trust` |
+|---|---|---|
+| Balance owing / below the period's minimum % paid | **Denied** at once, with the figures in the reason | **Denied** at once |
+| Cleared | **Pending**: the finance office verifies it (one click: *Verify & approve*), then the student prints the card | **Approved** at once; the card is marked *PROVISIONAL* until staff verify |
+| Unreadable, figures don't add up, wrong year, no student ID | Pending: a person reviews | Pending: a person reviews |
+| Belongs to a different student | Upload refused | Upload refused |
+
+**Why `verify` is the default:** a PDF is easy to forge. Denying on a statement is safe (nobody forges a bigger debt), but *approving*
+from a document the student supplied would let a doctored PDF print a real card. Switch to `trust` only if you accept that risk, or
+you have no other source of fee data. Provisional cards show it on the card and on the QR verification page, and staff can **revoke** any card.
+
+Set each exam period's **Minimum fees paid (%)** under *Exam Periods* (100 = fully cleared). It is enforced for both fee records and statements.
+
+### The QR code on the printed card
+
+Each issued card carries a random 12-character code and a QR code to `<PUBLIC_WEB_URL>/verify/<code>`. That page needs **no sign-in**: an
+invigilator scans it and sees *Genuine*, *Provisional*, *Revoked*, *Expired* or *Not recognised*, with the student's name, ID and exam dates to compare
+against their ID card. Make sure `PUBLIC_WEB_URL` is set correctly in production and that your static host serves `index.html` for
+unknown paths (`web/public/_redirects` for Netlify/Cloudflare and `web/vercel.json` for Vercel are included).
+
+### Dashboard (staff)
+
+*Dashboard* (web, and the first tab in the mobile staff app) shows live numbers computed from real rows:
+
+* **Active students**: students who used the web or mobile app that day (the API records one activity row per user per day).
+  *Online now* = seen in the last 5 minutes.
+* **Tickets**: raised / **attended** / resolved per day, **pending at the end of each day**, average first response time, oldest waiting ticket.
+  *Attended* means a staff member picked the ticket up (it got an assignee) or it was resolved. A student booking an appointment does not count.
+* **Exams and fees** (active exam periods): applications by status, statements awaiting verification, collection rate, cleared vs not cleared.
+* Days use the campus calendar (`Africa/Nairobi`). The daily table can be exported as CSV.
+
+Tickets and activity that happened *before* this feature was installed have no activity history (the backfill only fixes ticket timestamps).
+In the demo, `seed_demo.sql` adds two weeks of sample history so the charts aren't empty.
+
+## 13. Going to production
+
+Checklist (nothing here is optional for a real deployment):
+
+* **Secrets:** `backend/.env` holds your Supabase **service-role key** and database password. It must never be committed, zipped, emailed or
+  pasted anywhere. If it ever has been, **rotate both** in the Supabase dashboard. On your host, set variables in its dashboard instead of using a file.
+* **Backend** (Render/Railway/Fly/any Docker host; `backend/Dockerfile` is included): `NODE_ENV=production`, `CORS_ORIGIN` (the web app's URL), `PUBLIC_WEB_URL`,
+  `TRUST_PROXY=1`, plus the Supabase variables. In production the server refuses to start without `CORS_ORIGIN` and `PUBLIC_WEB_URL`.
+  It logs one JSON line per request (with a request id, also returned as `X-Request-Id`), rate-limits every route, and shuts down gracefully on deploy.
+* **Database:** run `npm run db:schema` once against the production project (it is safe to re-run). **Do not run `db:seed` in production**:
+  it creates demo logins with known passwords. Create the first staff/admin account in *Authentication ▸ Users* and set its `role` in `profiles`.
+* **Storage:** the private `fee-statements` bucket is created automatically on start-up.
+* **Web:** `npm run build`, host `web/dist` on any static host, built with `VITE_API_URL` pointing at the API.
+* **Mobile:** build with EAS and `EXPO_PUBLIC_API_URL=https://…`.
+* **Backups:** Supabase's free tier has none and pauses idle projects. Use a paid plan with point-in-time recovery.
+* **Email:** fill in `SMTP_*` to deliver exam-card and rejection emails (otherwise they are only stored).
+* **CI:** `.github/workflows/ci.yml` runs the unit tests, type checks and builds on every push. Run `npm install` in `backend`, `web` and `mobile` once and commit the updated `package-lock.json` files first (new dependencies were added).
+
+## 14. Going beyond localhost (details)
 
 * Host the API somewhere with HTTPS (Render, Railway, Fly…). Set its env vars there (never in the repo),
   `NODE_ENV=production`, and `CORS_ORIGIN` to the web app's URL.
@@ -335,7 +404,7 @@ validation errors add `details: [{ field, message }]`.
 * Registration and password changes are rate-limited (20 attempts / 15 min per IP); sign-in attempts are
   rate-limited by Supabase.
 
-## 13. Known limits
+## 15. Known limits
 
 * **How this migration was verified.** The new database schema, security rules, triggers and every API route
   were tested against a real **PostgreSQL 16**. The 18 backend integration tests, the web tests (24) and
@@ -345,6 +414,9 @@ validation errors add `details: [{ field, message }]`.
   especially **Realtime** (never run live). If live updates don't arrive, see §9; the 15-second polling covers it.
 * The mobile app has not been run on a physical device or emulator, only type-checked, linted and tested in Jest.
 * Live updates trigger a refetch; they don't patch the screen in place. Fine at campus scale.
+* **Scanned or photographed statements** can't be read automatically (no OCR): they go to a person. PDF text extraction uses `unpdf`; statement layouts vary
+  between institutions, so test the parser with a real statement from yours (`backend/src/statementParser.js`, tests in `backend/test/unit`) and extend the labels if needed.
+* The mobile card shows its verification code but not a QR image yet (the web card has the QR).
 * Ticket **file attachments** and push notifications are not implemented.
 * No password-reset-by-email flow yet (an admin can reset a password in *Authentication ▸ Users*;
   `change-password` works for signed-in users).
@@ -354,7 +426,7 @@ validation errors add `details: [{ field, message }]`.
 * The API checks each request's token with Supabase (cached for 15 s); a deleted/banned user is cut off within
   that window.
 
-## 14. Project layout
+## 16. Project layout
 
 ```
 database/supabase/

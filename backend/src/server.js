@@ -1,6 +1,7 @@
 import { createApp } from './app.js';
 import { config, describeTarget } from './config.js';
 import { pool } from './db.js';
+import { ensureStatementBucket } from './storage.js';
 import { supabaseAdmin } from './supabase.js';
 
 const target = describeTarget();
@@ -63,11 +64,28 @@ try {
   }
 }
 
+// 4. The private bucket that holds uploaded fee statements. Without it uploads fail, so say so loudly (but keep serving everything else).
+try {
+  await ensureStatementBucket();
+} catch (e) {
+  console.warn(`! Could not prepare the '${config.statementBucket}' storage bucket (${e.message}). Fee-statement uploads will fail until it exists.`);
+}
+
 const server = createApp().listen(config.port, () => {
-  console.log(`✔ Finesse API running on http://localhost:${config.port}`);
-  console.log(`  database: ${target.dbHost}   auth: ${target.supabaseHost}`);
+  console.log(`✔ Finesse API running on http://localhost:${config.port}  (${config.nodeEnv})`);
+  console.log(`  database: ${target.dbHost}   auth: ${target.supabaseHost}   fee statements: ${config.feeStatementMode} mode`);
+  if (config.isProd && config.corsOrigins.some((o) => /localhost|127\.0\.0\.1/.test(o))) console.warn('! CORS_ORIGIN still lists a localhost address in production.');
 });
 
-const shutdown = () => server.close(() => pool.end().then(() => process.exit(0)));
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+// Stop taking new requests, let running ones finish, then close the database pool. A host's "deploy" sends SIGTERM.
+let stopping = false;
+const shutdown = (signal) => {
+  if (stopping) return;
+  stopping = true;
+  console.log(`${signal} received: shutting down…`);
+  setTimeout(() => process.exit(1), 10_000).unref();
+  server.close(() => pool.end().then(() => process.exit(0)));
+};
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('unhandledRejection', (reason) => console.error(JSON.stringify({ level: 'error', message: 'Unhandled promise rejection', reason: String(reason?.stack ?? reason) })));

@@ -25,8 +25,8 @@ describe('helpers', () => {
   it('cardNumber is stable and formatted', () => expect(cardNumber('e0000000-0000-4000-8000-000000000001')).toBe('FC-E0000000'));
   it('homeFor routes by role', () => {
     expect(homeFor('student')).toBe('/tickets');
-    expect(homeFor('staff')).toBe('/staff/queue');
-    expect(homeFor('admin')).toBe('/staff/queue');
+    expect(homeFor('staff')).toBe('/staff/dashboard');
+    expect(homeFor('admin')).toBe('/staff/dashboard');
   });
 });
 

@@ -93,8 +93,10 @@ router.patch(
     if (b.priority !== undefined) sets.push(`priority = ${bind(params, b.priority)}`);
     if (b.staffNotes !== undefined) sets.push(`staff_notes = ${bind(params, b.staffNotes)}`);
     if (b.assignedStaffId !== undefined) sets.push(`assigned_staff_id = ${bind(params, b.assignedStaffId)}`);
-    // Picking up a pending ticket assigns it to whoever moved it forward.
-    if (b.status === 'in_review' && b.assignedStaffId === undefined && !ticket.assigned_staff_id) {
+    // Picking up a ticket (moving it forward or writing a note on it) assigns it to that staff member.
+    // That is what counts the ticket as "attended" on the dashboard.
+    const touched = (b.status !== undefined && b.status !== 'pending') || (b.staffNotes !== undefined && b.staffNotes !== ticket.staff_notes);
+    if (touched && b.assignedStaffId === undefined && !ticket.assigned_staff_id) {
       sets.push(`assigned_staff_id = ${bind(params, req.user.id)}`);
     }
     if (!sets.length) throw new HttpError(400, 'Nothing to update.');

@@ -14,9 +14,9 @@ export function useNavOptions() {
     },
     tabs: {
       headerShown: false,
-      tabBarStyle: { backgroundColor: colors.bg_nav, borderTopColor: colors.nav_border },
-      tabBarActiveTintColor: colors.nav_text_active,
-      tabBarInactiveTintColor: colors.nav_text,
+      tabBarStyle: { backgroundColor: colors.bg_nav, borderTopColor: colors.border },
+      tabBarActiveTintColor: colors.accent_teal_lt,
+      tabBarInactiveTintColor: colors.text_muted,
       tabBarLabelStyle: { fontFamily: FONTS.button, fontSize: 9 },
     },
   } as const;

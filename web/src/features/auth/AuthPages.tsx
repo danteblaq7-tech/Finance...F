@@ -5,15 +5,11 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 import { Button, ErrorNote, Field } from '@/components/ui';
 import { homeFor } from '@/lib/utils';
-import { ThemeToggle } from '@/components/ThemeToggle';
 import { useAuth } from './AuthProvider';
 
 function AuthShell({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
-      <div className="fixed right-4 top-4">
-        <ThemeToggle className="border-line bg-bg-secondary text-ink-secondary hover:border-line-active" />
-      </div>
       <div className="w-full max-w-md">
         <div className="mb-6 text-center">
           <div className="font-display text-3xl font-black tracking-widest text-brand-teal-lt">FINESSE</div>

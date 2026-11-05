@@ -5,9 +5,11 @@ import { Layout } from '@/components/Layout';
 import { Spinner } from '@/components/ui';
 import { LoginPage, RegisterPage } from '@/features/auth/AuthPages';
 import { useAuth } from '@/features/auth/AuthProvider';
+import { DashboardPage } from '@/features/dashboard/DashboardPage';
 import { ExamCardPage } from '@/features/exam/ExamCardPage';
 import { ApplicationsPage, ExamPeriodsPage, FeeRecordsPage } from '@/features/exam/StaffExamPages';
 import { SlotsPage } from '@/features/slots/SlotsPage';
+import { VerifyPage } from '@/features/verify/VerifyPage';
 import { homeFor } from '@/lib/utils';
 import { MyTicketsPage, NewTicketPage, StaffQueuePage, TicketDetailPage } from '@/features/tickets/TicketPages';
 
@@ -22,6 +24,9 @@ function Home() {
 export default function App() {
   return (
     <Routes>
+      {/* Public: invigilators scan the QR code on a printed exam card. No sign-in needed. */}
+      <Route path="/verify/:code" element={<VerifyPage />} />
+
       <Route element={<RedirectIfAuthed />}>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
@@ -39,6 +44,7 @@ export default function App() {
           </Route>
 
           <Route element={<RequireAuth roles={['staff', 'admin']} />}>
+            <Route path="/staff/dashboard" element={<DashboardPage />} />
             <Route path="/staff/queue" element={<StaffQueuePage />} />
             <Route path="/staff/applications" element={<ApplicationsPage />} />
             <Route path="/staff/fee-records" element={<FeeRecordsPage />} />

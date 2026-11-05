@@ -22,6 +22,10 @@
 create or replace function public.app_today() returns date
 language sql stable as $$ select (now() at time zone 'Africa/Nairobi')::date $$;
 
+-- The university-local calendar day of a timestamp (used by the dashboard statistics).
+create or replace function public.app_day(ts timestamptz) returns date
+language sql stable as $$ select (ts at time zone 'Africa/Nairobi')::date $$;
+
 create or replace function public.set_updated_at() returns trigger
 language plpgsql as $$
 begin
@@ -190,6 +194,72 @@ create table if not exists public.sent_emails (
 );
 create index if not exists idx_sent_at on public.sent_emails (sent_at);
 
+
+-- ----------------------------------------------------------------------------
+--  PRODUCTION ADDITIONS: fee statements, activity tracking, exam-card verification
+-- ----------------------------------------------------------------------------
+
+-- fee_statements: a fee statement a student uploaded (the file lives in the private Storage bucket 'fee-statements').
+-- The figures are what the parser read from it; `outcome` is what the rules concluded.
+create table if not exists public.fee_statements (
+  id             uuid primary key default gen_random_uuid(),
+  student_uid    uuid not null references public.profiles(id) on delete cascade,
+  student_id     text not null,
+  exam_period_id uuid references public.exam_periods(id) on delete set null,
+  academic_year  text not null,
+  semester       text not null,
+  file_path      text not null,               -- path inside the 'fee-statements' bucket
+  file_name      text not null,
+  mime_type      text not null,
+  size_bytes     integer not null check (size_bytes > 0),
+  sha256         text not null,
+  total_fee      numeric(12,2),
+  amount_paid    numeric(12,2),
+  balance        numeric(12,2),
+  confidence     text not null default 'none' check (confidence in ('high','medium','low','none')),
+  parse_source   text,
+  flags          text[] not null default '{}',
+  identity       text not null default 'unknown' check (identity in ('matched','mismatch','unknown')),
+  outcome        text not null default 'needs_review' check (outcome in ('cleared','not_cleared','needs_review','official_record')),
+  created_at     timestamptz not null default now()
+);
+create index if not exists idx_fee_statements_student on public.fee_statements (student_uid, created_at desc);
+create index if not exists idx_fee_statements_created on public.fee_statements (created_at);
+
+-- daily_activity: one row per user per day they used the app (powers "active students" on the dashboard).
+create table if not exists public.daily_activity (
+  day           date not null,
+  user_id       uuid not null references public.profiles(id) on delete cascade,
+  first_seen_at timestamptz not null default now(),
+  last_seen_at  timestamptz not null default now(),
+  pings         integer not null default 1,
+  primary key (day, user_id)
+);
+
+-- tickets: when did staff first pick it up, and when was it closed?  (set by trigger, never by clients)
+alter table public.tickets add column if not exists attended_at timestamptz;
+alter table public.tickets add column if not exists resolved_at timestamptz;
+alter table public.tickets add column if not exists closed_at   timestamptz;
+create index if not exists idx_tickets_created  on public.tickets (created_at);
+create index if not exists idx_tickets_attended on public.tickets (attended_at) where attended_at is not null;
+
+-- exam_card_applications: where the decision came from, and everything the printed card's QR code needs
+alter table public.exam_card_applications add column if not exists decision_source   text not null default 'fee_record'
+  check (decision_source in ('fee_record','statement','manual'));
+alter table public.exam_card_applications add column if not exists status_note       text;
+alter table public.exam_card_applications add column if not exists statement_id      uuid references public.fee_statements(id) on delete set null;
+alter table public.exam_card_applications add column if not exists verification_code text;
+alter table public.exam_card_applications add column if not exists revoked_at        timestamptz;
+alter table public.exam_card_applications add column if not exists revoked_by        uuid references public.profiles(id) on delete set null;
+alter table public.exam_card_applications add column if not exists revoked_reason    text;
+create unique index if not exists uq_app_verification_code on public.exam_card_applications (verification_code) where verification_code is not null;
+create index if not exists idx_app_created on public.exam_card_applications (created_at);
+
+-- Cards issued before verification codes existed get one now.
+update public.exam_card_applications
+   set verification_code = upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 12))
+ where status = 'issued' and verification_code is null;
+
 -- ----------------------------------------------------------------------------
 --  updated_at maintenance (replaces MySQL's ON UPDATE CURRENT_TIMESTAMP)
 -- ----------------------------------------------------------------------------
@@ -248,9 +318,16 @@ on conflict do nothing;
 create or replace function public.trg_application_reconcile() returns trigger
 language plpgsql as $$
 declare
-  v_fee public.fee_records%rowtype;
+  v_fee    public.fee_records%rowtype;
+  v_min    integer;
+  v_pct    numeric;
+  v_ok     boolean;
 begin
-  if new.status = 'pending' then
+  -- Applications decided from an uploaded statement are decided by the API (decision_source = 'statement').
+  if new.status = 'pending' and new.decision_source = 'fee_record' then
+    select coalesce(min_payment_percent, 100) into v_min from public.exam_periods where id = new.exam_period_id;
+    v_min := coalesce(v_min, 100);
+
     select * into v_fee
       from public.fee_records
      where student_id = new.student_id
@@ -268,12 +345,19 @@ begin
       new.total_fee     := v_fee.total_fee;
       new.amount_paid   := v_fee.amount_paid;
       new.balance       := v_fee.balance;
-      if v_fee.is_cleared_for_exam then
+      -- Cleared when the finance office cleared/excepted them, or they have paid at least the period's required percentage.
+      v_ok := v_fee.is_cleared_for_exam
+              or (v_fee.total_fee > 0 and v_fee.amount_paid * 100 >= v_fee.total_fee * v_min);
+      if v_ok then
         new.status := 'approved';
         new.rejection_reason := null;
       else
+        v_pct := case when v_fee.total_fee > 0 then floor(v_fee.amount_paid * 100 / v_fee.total_fee) else 0 end;
         new.status := 'rejected';
-        new.rejection_reason := 'Your fees are not fully cleared. Outstanding balance: KSh '
+        new.rejection_reason := case
+          when v_min >= 100 then 'Your fees are not fully cleared. Outstanding balance: KSh '
+          else 'You have paid ' || v_pct::int || '% of your fees; at least ' || v_min || '% is required for this exam period. Outstanding balance: KSh '
+        end
           || to_char(v_fee.balance, 'FM999,999,999,990')
           || '. Please settle your fees and reapply.';
       end if;
@@ -286,6 +370,37 @@ drop trigger if exists trg_application_reconcile on public.exam_card_application
 create trigger trg_application_reconcile
   before insert on public.exam_card_applications
   for each row execute function public.trg_application_reconcile();
+
+-- ----------------------------------------------------------------------------
+--  TRIGGER: ticket lifecycle timestamps for the dashboard.
+--  "Attended" = a staff member picked the ticket up (it got an assignee) or it was resolved. A student booking an
+--  appointment moves a ticket to 'in_review' too, but that is NOT staff attention, so status alone is not used.
+-- ----------------------------------------------------------------------------
+create or replace function public.trg_ticket_lifecycle() returns trigger
+language plpgsql as $$
+begin
+  if new.attended_at is null and (new.assigned_staff_id is not null or new.status = 'resolved') then
+    new.attended_at := now();
+  end if;
+  if new.status = 'resolved' and new.resolved_at is null then new.resolved_at := now(); end if;
+  if new.status in ('resolved','cancelled') and new.closed_at is null then new.closed_at := now(); end if;
+  if tg_op = 'UPDATE' and new.status in ('pending','in_review') and old.status in ('resolved','cancelled') then
+    new.resolved_at := null;   -- re-opened
+    new.closed_at   := null;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists trg_ticket_lifecycle on public.tickets;
+create trigger trg_ticket_lifecycle
+  before insert or update on public.tickets
+  for each row execute function public.trg_ticket_lifecycle();
+
+-- Tickets that already existed before these columns did.
+update public.tickets set attended_at = coalesce(updated_at, created_at)
+ where attended_at is null and (assigned_staff_id is not null or status = 'resolved');
+update public.tickets set resolved_at = coalesce(updated_at, created_at) where resolved_at is null and status = 'resolved';
+update public.tickets set closed_at   = coalesce(updated_at, created_at) where closed_at   is null and status in ('resolved','cancelled');
 
 -- ----------------------------------------------------------------------------
 --  FUNCTIONS CALLED BY THE API  (replace the MySQL stored procedures)
@@ -410,6 +525,8 @@ alter table public.exam_periods            enable row level security;
 alter table public.exam_card_applications  enable row level security;
 alter table public.email_templates         enable row level security;
 alter table public.sent_emails             enable row level security;
+alter table public.fee_statements          enable row level security;
+alter table public.daily_activity          enable row level security;
 
 drop policy if exists profiles_select on public.profiles;
 create policy profiles_select on public.profiles for select to authenticated
@@ -447,6 +564,14 @@ drop policy if exists sent_emails_select on public.sent_emails;
 create policy sent_emails_select on public.sent_emails for select to authenticated
   using (public.is_staff());
 
+drop policy if exists fee_statements_select on public.fee_statements;
+create policy fee_statements_select on public.fee_statements for select to authenticated
+  using (student_uid = (select auth.uid()) or public.is_staff());
+
+drop policy if exists daily_activity_select on public.daily_activity;
+create policy daily_activity_select on public.daily_activity for select to authenticated
+  using (public.is_staff());
+
 -- No INSERT / UPDATE / DELETE policies exist, so clients cannot write at all.
 -- Belt and braces: also remove the privileges.
 revoke all on all tables in schema public from anon;
@@ -460,6 +585,7 @@ revoke execute on function public.unbook_slot(uuid)                  from public
 revoke execute on function public.generate_slots_for_date(date)      from public, anon, authenticated;
 revoke execute on function public.handle_new_user()                  from public, anon, authenticated;
 revoke execute on function public.trg_application_reconcile()        from public, anon, authenticated;
+revoke execute on function public.trg_ticket_lifecycle()             from public, anon, authenticated;
 revoke execute on function public.is_staff()                         from public, anon;
 revoke execute on function public.my_student_id()                    from public, anon;
 grant  execute on function public.is_staff()                         to authenticated;
@@ -474,7 +600,7 @@ do $$
 declare t text;
 begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
-    foreach t in array array['tickets','slots','exam_card_applications','fee_records','exam_periods'] loop
+    foreach t in array array['tickets','slots','exam_card_applications','fee_records','exam_periods','fee_statements'] loop
       if not exists (
         select 1 from pg_publication_tables
          where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
