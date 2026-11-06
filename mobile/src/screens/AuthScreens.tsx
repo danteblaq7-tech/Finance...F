@@ -1,22 +1,52 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { StatusBar } from 'expo-status-bar';
+import { useContext, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { View } from 'react-native';
+import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { z } from 'zod';
 import { FormTextField } from '@/components/forms';
 import { AppText, Button, Card, ErrorNote, Screen, TextField } from '@/components/ui';
 import { useAuth } from '@/context/AuthProvider';
 import { checkHealth, getServerUrl, normaliseServerUrl, setServerUrl } from '@/lib/api';
 import { useTheme } from '@/theme/ThemeProvider';
-import { FONTS, SPACING } from '@/theme/theme';
+import { FONTS, RADIUS, SPACING } from '@/theme/theme';
 
-function Brand() {
-  const { colors } = useTheme();
+// Positions (in %) and sizes of the faint stars in the banner. Fixed, so the screen never changes between renders.
+const STARS = [
+  { x: 8, y: 14, s: 2 }, { x: 22, y: 62, s: 1.5 }, { x: 37, y: 24, s: 2.5 }, { x: 52, y: 70, s: 1.5 }, { x: 64, y: 12, s: 2 },
+  { x: 78, y: 40, s: 1.5 }, { x: 90, y: 20, s: 2 }, { x: 14, y: 82, s: 2 }, { x: 46, y: 46, s: 1.5 }, { x: 86, y: 76, s: 2 },
+] as const;
+
+/** A soft glow: stacked circles that each add a little colour, so it fades out towards the edge (React Native has no blur). */
+function Glow({ right, bottom, radius, color, steps = 18 }: { right: number; bottom: number; radius: number; color: string; steps?: number }) {
   return (
-    <View style={{ alignItems: 'center', marginVertical: SPACING.lg }}>
-      <AppText style={{ fontFamily: FONTS.display, fontSize: 32, letterSpacing: 4, color: colors.accent_teal_lt }}>FINESSE</AppText>
-      <AppText variant="label" style={{ marginTop: 4 }}>Campus Finance Management</AppText>
+    <>
+      {Array.from({ length: steps }, (_, i) => {
+        const r = radius * (1 - i / steps);
+        return <View key={i} pointerEvents="none" style={{ position: 'absolute', right: right - r, bottom: bottom - r, width: r * 2, height: r * 2, borderRadius: r, backgroundColor: color, opacity: 0.04 }} />;
+      })}
+    </>
+  );
+}
+
+/**
+ * Night-sky banner with a cyan glow, made only of plain Views (no image, no gradient library), so it can't fail to load.
+ * It is dark in both themes; the status bar icons are forced light while this screen is showing.
+ */
+function Hero() {
+  const insets = useContext(SafeAreaInsetsContext);
+  const top = insets?.top ?? 0;
+  return (
+    <View style={{ backgroundColor: '#07172B', overflow: 'hidden', borderBottomLeftRadius: RADIUS.xl, borderBottomRightRadius: RADIUS.xl, paddingTop: top + SPACING.lg, paddingBottom: SPACING.xl + SPACING.lg, paddingHorizontal: SPACING.lg }}>
+      <Glow right={-30} bottom={-10} radius={230} color="#0E7490" />
+      <Glow right={30} bottom={10} radius={150} color="#22D3EE" />
+      {STARS.map((st) => (
+        <View key={`${st.x}-${st.y}`} pointerEvents="none" style={{ position: 'absolute', left: `${st.x}%`, top: `${st.y}%`, width: st.s, height: st.s, borderRadius: st.s, backgroundColor: '#FFFFFF', opacity: 0.6 }} />
+      ))}
+      <AppText style={{ fontFamily: FONTS.display, fontSize: 30, letterSpacing: 4, color: '#FFFFFF' }}>FINESSE</AppText>
+      <AppText variant="label" style={{ marginTop: 4, color: 'rgba(255,255,255,0.7)' }}>Campus Finance Management</AppText>
     </View>
   );
 }
@@ -80,6 +110,7 @@ const loginSchema = z.object({
 type LoginValues = z.infer<typeof loginSchema>;
 
 export function LoginScreen() {
+  const { colors } = useTheme();
   const { login } = useAuth();
   const router = useRouter();
   const [error, setError] = useState<unknown>(null);
@@ -98,19 +129,22 @@ export function LoginScreen() {
   });
 
   return (
-    <Screen>
-      <Brand />
-      <Card>
-        <AppText variant="heading" style={{ marginBottom: SPACING.md }}>Sign in</AppText>
+    <Screen padded={false} edges={[]}>
+      <StatusBar style="light" />
+      <Hero />
+      <Card style={{ marginHorizontal: SPACING.md, marginTop: -SPACING.xl, borderRadius: RADIUS.xl, padding: SPACING.lg, elevation: 6, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 16, shadowOffset: { width: 0, height: 8 } }}>
+        <AppText variant="heading" style={{ marginBottom: SPACING.md, fontSize: 24 }}>Sign in</AppText>
         <FormTextField control={control} name="email" label="Email" autoCapitalize="none" autoCorrect={false} keyboardType="email-address" autoComplete="email" textContentType="username" />
         <FormTextField control={control} name="password" label="Password" secureTextEntry autoCapitalize="none" autoComplete="current-password" textContentType="password" onSubmitEditing={() => void submit()} />
         <ErrorNote error={error} />
-        <Button title="Sign in" loading={busy} onPress={() => void submit()} testID="login-submit" />
+        <Button title="Sign in" loading={busy} onPress={() => void submit()} testID="login-submit" style={{ backgroundColor: colors.accent_teal_lt, shadowColor: colors.accent_teal_lt, shadowOpacity: 0.45, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 4 }} />
       </Card>
-      <AppText variant="muted" style={{ textAlign: 'center', marginTop: SPACING.md }} onPress={() => router.push('/register')}>
-        New student? <AppText variant="muted" style={{ textDecorationLine: 'underline' }}>Create an account</AppText>
-      </AppText>
-      <ServerSettings />
+      <View style={{ paddingHorizontal: SPACING.md }}>
+        <AppText variant="muted" style={{ textAlign: 'center', marginTop: SPACING.md }} onPress={() => router.push('/register')}>
+          New student? <AppText variant="muted" style={{ color: colors.accent_teal_lt, textDecorationLine: 'underline' }}>Create an account</AppText>
+        </AppText>
+        <ServerSettings />
+      </View>
     </Screen>
   );
 }
