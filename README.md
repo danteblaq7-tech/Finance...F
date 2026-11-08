@@ -147,6 +147,7 @@ Every demo account has the password **`Finesse@2026`** (created by `npm run db:s
 |---|---|---|
 | Staff | `staff@finesse.ac.ke` | ticket queue, applications, fee-record CSV import, exam periods, slots, email templates |
 | Admin | `admin@finesse.ac.ke` | same as staff |
+| Lecturer | `lecturer@finesse.ac.ke` | scan exam cards and sign units (*Scan Cards*, *My Units*) |
 | Student (fees cleared) | `amina@students.finesse.ac.ke` | has an issued exam card: try **Print card** |
 | Student (owes KSh 26,000) | `brian@students.finesse.ac.ke` | exam application was rejected: staff can override |
 | Student | `cynthia@students.finesse.ac.ke` | has a booked appointment |
@@ -371,6 +372,54 @@ unknown paths (`web/public/_redirects` for Netlify/Cloudflare and `web/vercel.js
 
 Tickets and activity that happened *before* this feature was installed have no activity history (the backfill only fixes ticket timestamps).
 In the demo, `seed_demo.sql` adds two weeks of sample history so the charts aren't empty.
+
+## 12b. Exam-hall sign-in (one scan: genuine card, the student's units, and the signature)
+
+Replaces the paper signing sheet. A lecturer scans a student's exam-card QR code and Finesse, in one step,
+(1) checks the card is genuine and current, (2) knows which units that student is registered for and allowed to sit,
+and (3) marks the lecturer's unit as **sat**. The signature is a single database UPDATE, so a unit can only be signed
+once: a second scan says who signed it and when. (Proven with ten simultaneous scans in `npm run test:invigilation`.)
+
+**Who does what**
+| Role | Can |
+|---|---|
+| Lecturer (new role) | scan cards, sign **their own** units, see those units' registers. Nothing else: no finance screens |
+| Staff / admin | everything a lecturer can for **any** unit, plus set-up, bar/allow a student, undo a signature, remove a registration |
+| Admin only | create lecturer logins (lecturers have no student ID, so they cannot use the student sign-up) |
+
+**Set-up, once per exam period** (web app, *Exam Units*)
+1. Create the lecturers' logins (*Set up this exam period → 3. Lecturers*, admin only). Give each a temporary password.
+2. Import **student registrations**: a CSV with `student_id, unit_code` (optional `unit_name, allowed, reason`). Student IDs must match the IDs on fee records and exam cards. Units that do not exist yet are created.
+3. Import **unit details** (optional but recommended): `unit_code, unit_name, exam_date, start_time, end_time, venue, lecturers` (lecturers = e-mails separated by `;`). If a unit has an `exam_date`, it can only be signed on that day.
+4. Check each unit has a lecturer (a unit with none shows *NO LECTURER ASSIGNED*; tick lecturers under *Lecturers*).
+
+Both imports can be repeated safely: they never un-sign anyone, and a row with no `allowed` value never overrides a bar you set in the app. Use `allowed = no` plus a `reason` (e.g. missing CAT marks) to refuse a student for one unit.
+
+**Getting the CSVs from Seatsync.** Seatsync knows which cohorts sit which exam, so it can produce both files:
+```bash
+cd Seatsync/backend
+npm run export:exam-registrations                                  # lists the academic years and semesters
+npm run export:exam-registrations -- "2026/2027" "Semester 1"      # writes units_*.csv and registrations_*.csv into ./exports
+```
+Registrations are *every ACTIVE student in the cohorts attached to each non-cancelled exam*. Seatsync has no per-student
+registration (retakes, supplementary papers), so add those students with a one-row registrations CSV.
+
+**On exam day** (web app, *Scan Cards*; works in a phone browser, which needs https or localhost for the camera)
+1. Choose the unit you are invigilating (a lecturer with one unit has it chosen already).
+2. Point the camera at the QR code. Green *SIGNED IN* shows the student's name and ID to compare with their ID card; red explains why not (not registered, not allowed, not your unit, card revoked/expired, wrong day, already signed).
+3. Untick *Sign automatically* to see the student's units first and tap the one to sign.
+4. A staff phone's own camera app also works: it opens the public check page, which shows *Sign a unit for this student* once you are signed in.
+
+**Mistakes.** *Exam Units → Show register → Undo* (staff/admin) clears a signature; a reason is required and recorded
+with every signature, reset and bar in `unit_sign_log`. The register can be exported as CSV, and students see their
+units on their exam card (printed too).
+
+**Demo.** `npm run db:seed` adds `lecturer@finesse.ac.ke` (password as the other demo accounts), four units and Amina's
+registrations (barred from EEE202 for missing coursework). Sign in as the lecturer, choose *EEE201*, and scan Amina's card
+(*Print card* on her exam card page shows the QR; or paste its code into the box).
+
+**Not covered yet:** a scanner inside the mobile app (lecturers on the phone app are pointed to the web scanner),
+and working offline in a hall with no signal (each scan needs the server).
 
 ## 13. Going to production
 

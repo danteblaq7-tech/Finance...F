@@ -43,4 +43,19 @@ export function renderTemplate(template: string, vars: Record<string, string | n
 
 export const cardNumber = (applicationId: string): string => `FC-${applicationId.replace(/-/g, '').slice(0, 8).toUpperCase()}`;
 
-export const homeFor = (role: UserRole): string => (role === 'student' ? '/tickets' : '/staff/dashboard');
+export const homeFor = (role: UserRole): string => (role === 'student' ? '/tickets' : role === 'lecturer' ? '/scan' : '/staff/dashboard');
+
+/** Finance staff and admins. Lecturers are NOT staff: they only scan cards and see their own units' registers. */
+export const isStaffRole = (role: UserRole | undefined): boolean => role === 'staff' || role === 'admin';
+
+/** A time-of-day column ("09:00:00") as "09:00". (formatTime above is for full date-times.) */
+export const clock = (t: string | null | undefined): string => (t ? t.slice(0, 5) : '');
+
+/** The QR on an exam card holds https://<site>/verify/<CODE>. Accepts that, a pasted link, or the bare code; null if it is neither. */
+export function extractCode(raw: string): string | null {
+  const s = raw.trim();
+  if (!s) return null;
+  const fromUrl = s.match(/\/verify\/([A-Za-z0-9]{8,16})(?:[/?#].*)?$/);
+  const code = (fromUrl ? fromUrl[1]! : s).toUpperCase();
+  return /^[A-Z0-9]{8,16}$/.test(code) ? code : null;
+}

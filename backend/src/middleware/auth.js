@@ -56,5 +56,15 @@ export const isStaff = (user) => ['staff', 'admin'].includes(user.role);
 export const requireStaff = (req, _res, next) =>
   req.user && isStaff(req.user) ? next() : next(new HttpError(403, 'Staff access only.'));
 
+// Lecturers (and finance staff/admins) may scan exam cards and sign units. Lecturers get NOTHING else: every other
+// staff route keeps using requireStaff, which a lecturer does not pass.
+export const isInvigilator = (user) => ['lecturer', 'staff', 'admin'].includes(user.role);
+
+export const requireInvigilator = (req, _res, next) =>
+  req.user && isInvigilator(req.user) ? next() : next(new HttpError(403, 'Invigilators only.'));
+
+export const requireAdmin = (req, _res, next) =>
+  req.user?.role === 'admin' ? next() : next(new HttpError(403, 'Admins only.'));
+
 export const requireStudent = (req, _res, next) =>
   req.user?.role === 'student' ? next() : next(new HttpError(403, 'Students only.'));

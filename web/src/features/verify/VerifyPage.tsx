@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { CheckCircle2, Clock, ShieldAlert, XCircle } from 'lucide-react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { Spinner } from '@/components/ui';
+import { useAuth } from '@/features/auth/AuthProvider';
 import { api } from '@/lib/api';
 import type { VerifyResult } from '@/lib/types';
 import { formatDate } from '@/lib/utils';
@@ -17,6 +18,9 @@ const LOOK = {
 /** Public page opened by scanning the QR code on a printed exam card. */
 export function VerifyPage() {
   const { code = '' } = useParams();
+  const { user } = useAuth();
+  // A lecturer or staff member who scanned with their phone's own camera can jump straight to signing a unit.
+  const canSign = user?.role === 'lecturer' || user?.role === 'staff' || user?.role === 'admin';
   const q = useQuery({ queryKey: ['verify', code], queryFn: () => api.publicGet<VerifyResult>(`/verify/${encodeURIComponent(code)}`), retry: false });
   const look = q.data ? LOOK[q.data.state] : null;
 
@@ -40,6 +44,11 @@ export function VerifyPage() {
           )}
           {q.data.studentName && <p className="text-xs text-ink-muted">Check that the name and student ID match the student&apos;s ID card.</p>}
         </section>
+      )}
+      {canSign && q.data && q.data.state !== 'not_found' && (
+        <Link to={`/scan?code=${encodeURIComponent(code)}`} className="rounded-md bg-brand-teal px-4 py-3 text-center text-xs font-bold uppercase tracking-wider text-white hover:bg-brand-teal-lt">
+          Sign a unit for this student
+        </Link>
       )}
     </main>
   );

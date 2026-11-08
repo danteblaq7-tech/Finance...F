@@ -12,7 +12,7 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { FONTS, SPACING } from '@/theme/theme';
 import { ServerSettings } from './AuthScreens';
 
-const ROLE_COLORS = { student: 'accent_green', staff: 'accent_teal_lt', admin: 'accent_purple' } as const;
+const ROLE_COLORS = { student: 'accent_green', staff: 'accent_teal_lt', admin: 'accent_purple', lecturer: 'accent_amber' } as const;
 
 const pwSchema = z
   .object({
@@ -41,7 +41,7 @@ function ChangePassword() {
   );
 }
 
-export function ProfileScreen() {
+export function ProfileScreen({ notice }: { notice?: string } = {}) {
   const { user, logout } = useAuth();
   const { colors, isDark, toggle } = useTheme();
   if (!user) return null;
@@ -54,6 +54,7 @@ export function ProfileScreen() {
   return (
     <Screen>
       <Header title={user.role === 'student' ? 'Profile' : 'Account'} />
+      {notice ? <Card style={{ marginBottom: SPACING.md }}><AppText>{notice}</AppText></Card> : null}
       <Card style={{ marginBottom: SPACING.md }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: SPACING.md }}>
           <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: colors.accent_teal, alignItems: 'center', justifyContent: 'center' }}>

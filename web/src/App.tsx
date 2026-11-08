@@ -8,6 +8,8 @@ import { useAuth } from '@/features/auth/AuthProvider';
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
 import { ExamCardPage } from '@/features/exam/ExamCardPage';
 import { ApplicationsPage, ExamPeriodsPage, FeeRecordsPage } from '@/features/exam/StaffExamPages';
+import { ScanPage } from '@/features/invigilation/ScanPage';
+import { UnitsPage } from '@/features/invigilation/UnitsPage';
 import { SlotsPage } from '@/features/slots/SlotsPage';
 import { VerifyPage } from '@/features/verify/VerifyPage';
 import { homeFor } from '@/lib/utils';
@@ -41,6 +43,12 @@ export default function App() {
             <Route path="/tickets" element={<MyTicketsPage />} />
             <Route path="/tickets/new" element={<NewTicketPage />} />
             <Route path="/exam-card" element={<ExamCardPage />} />
+          </Route>
+
+          {/* Exam-hall sign-in: lecturers see only their own units; finance staff and admins see everything. */}
+          <Route element={<RequireAuth roles={['lecturer', 'staff', 'admin']} />}>
+            <Route path="/scan" element={<ScanPage />} />
+            <Route path="/units" element={<UnitsPage />} />
           </Route>
 
           <Route element={<RequireAuth roles={['staff', 'admin']} />}>

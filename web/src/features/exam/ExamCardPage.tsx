@@ -6,7 +6,7 @@ import { Badge, Button, Empty, ErrorNote, PageHeader, Spinner } from '@/componen
 import { useAuth } from '@/features/auth/AuthProvider';
 import { api } from '@/lib/api';
 import { EXAM_STATUS, TONE } from '@/lib/constants';
-import type { Application, ExamPeriod, FeeRecord, FeeStatement } from '@/lib/types';
+import type { Application, ExamPeriod, FeeRecord, FeeStatement, MyUnit } from '@/lib/types';
 import { cardNumber, formatDate, formatDateTime, formatKsh, toDateString } from '@/lib/utils';
 
 const MAX_MB = 5;
@@ -17,6 +17,12 @@ const isProvisional = (a: Application) => a.decision_source === 'statement' && !
 
 function PrintableCard({ app }: { app: Application }) {
   const { user } = useAuth();
+  // The units this student may sit (registered by the finance/academic office); shown on the card so nothing is a surprise at the door.
+  const units = useQuery({
+    queryKey: ['my-units', app.exam_period_id],
+    queryFn: () => api.get<{ units: MyUnit[] }>(`/exam-units/mine?periodId=${app.exam_period_id}`),
+    retry: false,
+  }).data?.units ?? [];
   const verifyUrl = `${window.location.origin}/verify/${app.verification_code}`;
   return (
     <div className="print-area card mt-4 space-y-3 border-2 border-brand-teal-lt">
@@ -48,6 +54,19 @@ function PrintableCard({ app }: { app: Application }) {
           </div>
         )}
       </div>
+      {units.length > 0 && (
+        <div>
+          <div className="label mb-1">Registered units</div>
+          <ul className="grid gap-x-4 gap-y-0.5 text-xs sm:grid-cols-2">
+            {units.map((u) => (
+              <li key={u.id}>
+                <b>{u.unit_code}</b> {u.unit_name}
+                {!u.allowed ? <span className="text-brand-red"> (not allowed)</span> : u.signed_at ? <span className="text-brand-green"> (sat)</span> : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <p className="text-xs text-ink-muted">
         Issued {formatDateTime(app.card_issued_at)}. Present this card, with your student ID, at every examination. Invigilators can confirm it is genuine by scanning the QR code.
       </p>

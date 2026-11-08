@@ -3,6 +3,7 @@ import rateLimit from 'express-rate-limit';
 import { config } from '../config.js';
 import { queryOne } from '../db.js';
 import { asyncHandler } from '../middleware/errors.js';
+import { cardState } from '../services/invigilation.js';
 
 // PUBLIC: no sign-in. An invigilator scans the QR code on a printed exam card and sees whether it is genuine.
 // Only what is needed to compare the card with the person holding it is returned (name, student ID, course, exam dates).
@@ -37,8 +38,7 @@ router.get(
     if (!a || a.status !== 'issued') return notFound();
 
     // revoked → expired → provisional (statement not yet verified by staff) → valid
-    const provisional = a.decision_source === 'statement' && !a.manually_approved_by;
-    const state = a.revoked_at ? 'revoked' : a.today > a.exam_end_date ? 'expired' : provisional ? 'provisional' : 'valid';
+    const state = cardState({ ...a, exam_end_date: a.exam_end_date });
     res.json({
       state,
       valid: state === 'valid' || state === 'provisional',

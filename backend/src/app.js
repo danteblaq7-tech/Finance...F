@@ -10,6 +10,7 @@ import { requestLogger } from './middleware/logging.js';
 import authRoutes from './routes/auth.js';
 import { applicationsRouter, periodsRouter } from './routes/exam.js';
 import feeRoutes from './routes/fees.js';
+import { invigilationRouter, lecturersRouter, unitsRouter } from './routes/invigilation.js';
 import slotRoutes from './routes/slots.js';
 import statementRoutes from './routes/statements.js';
 import statsRoutes from './routes/stats.js';
@@ -54,6 +55,9 @@ export function createApp() {
   app.use('/api/applications', applicationsRouter);
   app.use('/api/stats', statsRoutes);
   app.use('/api/verify', verifyRoutes);
+  app.use('/api/invigilation', invigilationRouter);
+  app.use('/api/exam-units', unitsRouter);
+  app.use('/api/lecturers', lecturersRouter);
   app.use('/api', templateRoutes);
 
   app.use(notFound);

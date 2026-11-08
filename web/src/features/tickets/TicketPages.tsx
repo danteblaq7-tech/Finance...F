@@ -10,7 +10,7 @@ import { useAuth } from '@/features/auth/AuthProvider';
 import { api } from '@/lib/api';
 import { ISSUE_LABELS, ISSUE_TYPES, TICKET_STATUS, TONE } from '@/lib/constants';
 import type { Slot, SlotDate, Ticket, TicketPriority, TicketStatus } from '@/lib/types';
-import { cn, formatDate, formatDateTime, formatTime } from '@/lib/utils';
+import { cn, formatDate, formatDateTime, formatTime, isStaffRole } from '@/lib/utils';
 
 const REFRESH_MS = 15_000; // tickets & slots poll so staff updates show up without a reload
 
@@ -180,7 +180,7 @@ export function TicketDetailPage() {
   const { id } = useParams();
   const { user } = useAuth();
   const qc = useQueryClient();
-  const staff = user?.role !== 'student';
+  const staff = isStaffRole(user?.role);
   const q = useQuery({ queryKey: ['ticket', id], queryFn: () => api.get<{ ticket: Ticket }>(`/tickets/${id}`), refetchInterval: REFRESH_MS });
   const cancel = useMutation({
     mutationFn: () => api.patch(`/tickets/${id}`, { status: 'cancelled' }),

@@ -4,6 +4,6 @@ import { useAuth } from '@/context/AuthProvider';
 /** The app's "/" entry: send each person to the right home screen for their role. */
 export default function Index() {
   const { user } = useAuth();
-  const href = !user ? '/login' : user.role === 'student' ? '/tickets' : '/queue';
+  const href = !user ? '/login' : user.role === 'student' ? '/tickets' : user.role === 'lecturer' ? '/lecturer' : '/queue';
   return <Redirect href={href} />;
 }

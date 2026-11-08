@@ -6,6 +6,7 @@
 --
 --  The demo accounts (created by backend/scripts/db-setup.js, all with the same password):
 --    admin@finesse.ac.ke   admin      staff@finesse.ac.ke   staff
+--    lecturer@finesse.ac.ke   lecturer (scans exam cards, signs units)
 --    amina@ / brian@ / cynthia@ / david@students.finesse.ac.ke   students
 --  Demo password: Finesse@2026   — change it or delete these users before real use.
 -- ============================================================================
@@ -14,7 +15,7 @@ do $$
 declare
   u_admin   uuid; u_staff uuid;
   u_amina   uuid; u_brian uuid; u_cynthia uuid; u_david uuid;
-  v_slot    uuid;
+  v_slot    uuid; u_lect uuid;
 begin
   select id into u_admin   from public.profiles where email = 'admin@finesse.ac.ke';
   select id into u_staff   from public.profiles where email = 'staff@finesse.ac.ke';
@@ -49,6 +50,31 @@ begin
   ('e0000000-0000-4000-8000-000000000002',u_brian,'SCI/114/2023','Brian Kiprop','brian@students.finesse.ac.ke','BSc Computer Science','3','c0000000-0000-4000-8000-000000000001','2026/2027','Semester 1','rejected','Your fees are not fully cleared. Outstanding balance: KSh 26,000. Please settle your fees and reapply.','d0000000-0000-4000-8000-000000000002',52000.00,78000.00,26000.00,null,null,null,null),
   ('e0000000-0000-4000-8000-000000000003',u_david,'MED/009/2022','David Mutua','david@students.finesse.ac.ke','MBChB Medicine','4','c0000000-0000-4000-8000-000000000001','2026/2027','Semester 1','approved',null,'d0000000-0000-4000-8000-000000000004',120000.00,140000.00,20000.00,u_staff,'Approved under fee exception (HELB pending credit).',null,null)
   on conflict (id) do nothing;
+
+  -- Exam-hall sign-in demo ---------------------------------------------------
+  -- Units and who may sit them. No exam dates are set, so scanning works whenever you try it.
+  -- Amina holds an issued card (EGM/027/2024): she may sit EEE201 and MAT201 but is barred from EEE202.
+  insert into public.exam_units (id, exam_period_id, unit_code, unit_name, venue) values
+  ('f1000000-0000-4000-8000-000000000001','c0000000-0000-4000-8000-000000000001','EEE201','Circuit Analysis','Main Hall'),
+  ('f1000000-0000-4000-8000-000000000002','c0000000-0000-4000-8000-000000000001','EEE202','Electromagnetics','Main Hall'),
+  ('f1000000-0000-4000-8000-000000000003','c0000000-0000-4000-8000-000000000001','MAT201','Engineering Mathematics III','Lecture Theatre 1'),
+  ('f1000000-0000-4000-8000-000000000004','c0000000-0000-4000-8000-000000000001','MED401','Clinical Medicine IV','Medical Hall')
+  on conflict (id) do nothing;
+
+  insert into public.unit_registrations (id, exam_unit_id, student_id, allowed, block_reason) values
+  ('f2000000-0000-4000-8000-000000000001','f1000000-0000-4000-8000-000000000001','EGM/027/2024',true,null),
+  ('f2000000-0000-4000-8000-000000000002','f1000000-0000-4000-8000-000000000002','EGM/027/2024',false,'Missing coursework (CAT 2)'),
+  ('f2000000-0000-4000-8000-000000000003','f1000000-0000-4000-8000-000000000003','EGM/027/2024',true,null),
+  ('f2000000-0000-4000-8000-000000000004','f1000000-0000-4000-8000-000000000004','MED/009/2022',true,null)
+  on conflict (id) do nothing;
+
+  select id into u_lect from public.profiles where email = 'lecturer@finesse.ac.ke';
+  if u_lect is not null then
+    insert into public.exam_unit_lecturers (exam_unit_id, lecturer_id) values
+    ('f1000000-0000-4000-8000-000000000001', u_lect),
+    ('f1000000-0000-4000-8000-000000000002', u_lect)
+    on conflict do nothing;
+  end if;
 
   -- Tickets -----------------------------------------------------------------
   insert into public.tickets (id, student_id, student_name, issue_type, description, priority, status, staff_notes, assigned_staff_id, created_at) values

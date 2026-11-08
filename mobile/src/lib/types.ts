@@ -1,6 +1,6 @@
 // Shapes returned by the Express API. Identical to web/src/lib/types.ts.
 // Shapes returned by the Express API (column names come straight from the Postgres schema in database/supabase).
-export type UserRole = 'student' | 'staff' | 'admin';
+export type UserRole = 'student' | 'staff' | 'admin' | 'lecturer';
 export type TicketStatus = 'pending' | 'in_review' | 'resolved' | 'cancelled';
 export type TicketPriority = 'low' | 'medium' | 'high';
 export type ExamCardStatus = 'pending' | 'approved' | 'rejected' | 'issued';

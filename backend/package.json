@@ -15,7 +15,8 @@
     "db:setup": "node scripts/db-setup.js all",
     "db:reset": "node scripts/db-setup.js reset",
     "test:unit": "node --experimental-test-module-mocks --test \"test/unit/*.test.js\"",
-    "test:integration": "node --test \"test/api.test.js\""
+    "test:integration": "node --test \"test/api.test.js\"",
+    "test:invigilation": "node --experimental-test-module-mocks --test test/invigilation.db.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

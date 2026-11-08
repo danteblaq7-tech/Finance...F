@@ -5,6 +5,7 @@ import { fake as __fake } from '@/test-utils/fakeSupabase';
 jest.mock('expo-font', () => ({ ...jest.requireActual('expo-font'), useFonts: () => [true, null] }));
 
 const student = { id: 'u1', name: 'Amina Hassan', email: 'amina@students.finesse.ac.ke', student_id: 'EGM/1', university: null, course: null, year_of_study: null, role: 'student' };
+const lecturer = { id: 'u3', name: 'Dr Otieno', email: 'lecturer@finesse.ac.ke', student_id: null, university: null, course: null, year_of_study: null, role: 'lecturer' };
 const staff = { id: 'u2', name: 'Susan Otieno', email: 'staff@finesse.ac.ke', student_id: null, university: null, course: null, year_of_study: null, role: 'staff' };
 
 /** Minimal fake API: returns empty lists so screens render their empty states. */
@@ -51,6 +52,17 @@ describe('role-based routing (real src/app routes)', () => {
     await mountApp();
     expect(await screen.findByText('Ticket Queue')).toBeTruthy();
     pathMatcher().toHavePathname('/queue');
+  });
+
+  it('sends a lecturer to their own screen, never the finance staff screens', async () => {
+    __fake.session = { access_token: 'jwt-lecturer', user: { id: 'u3' } };
+    fakeApi({ me: lecturer });
+    await mountApp();
+    expect(await screen.findByText(/Scanning exam cards/)).toBeTruthy();
+    pathMatcher().toHavePathname('/lecturer');
+    await act(async () => { router.navigate('/queue'); });
+    await waitFor(() => pathMatcher().not.toHavePathname('/queue'));
+    expect(screen.queryByText('Ticket Queue')).toBeNull();
   });
 
   it('keeps a student out of staff screens, even by navigating to them directly', async () => {

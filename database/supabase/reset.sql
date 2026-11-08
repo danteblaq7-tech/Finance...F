@@ -7,7 +7,8 @@
 --  Run with:  npm run db:reset      (asks you to confirm)
 -- ============================================================================
 drop view     if exists public.v_staff_queue, public.v_exam_applications, public.v_fee_clearance_summary;
-drop table    if exists public.daily_activity, public.fee_statements,
+drop table    if exists public.unit_sign_log, public.unit_registrations, public.exam_unit_lecturers, public.exam_units,
+                        public.daily_activity, public.fee_statements,
                         public.sent_emails, public.email_templates, public.exam_card_applications,
                         public.exam_periods, public.fee_records, public.slot_bookings,
                         public.tickets, public.slots, public.profiles cascade;

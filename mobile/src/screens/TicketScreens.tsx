@@ -202,7 +202,7 @@ export function TicketDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useAuth();
   const qc = useQueryClient();
-  const staff = user?.role !== 'student';
+  const staff = user?.role === 'staff' || user?.role === 'admin';
   const q = useQuery({ queryKey: ['ticket', id], queryFn: () => api.get<{ ticket: Ticket }>(`/tickets/${id}`), refetchInterval: REFRESH_MS, enabled: !!id });
   const cancel = useMutation({
     mutationFn: () => api.patch(`/tickets/${id}`, { status: 'cancelled' }),

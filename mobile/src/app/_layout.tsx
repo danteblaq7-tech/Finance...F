@@ -49,8 +49,11 @@ function Gate({ fontsReady }: { fontsReady: boolean }) {
         <Stack.Protected guard={user?.role === 'student'}>
           <Stack.Screen name="(student)" />
         </Stack.Protected>
-        <Stack.Protected guard={!!user && user.role !== 'student'}>
+        <Stack.Protected guard={user?.role === 'staff' || user?.role === 'admin'}>
           <Stack.Screen name="(staff)" />
+        </Stack.Protected>
+        <Stack.Protected guard={user?.role === 'lecturer'}>
+          <Stack.Screen name="(lecturer)" />
         </Stack.Protected>
       </Stack>
     </>

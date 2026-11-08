@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { Button, ErrorNote, Field } from '@/components/ui';
 import { homeFor } from '@/lib/utils';
 import { useAuth } from './AuthProvider';
@@ -17,6 +18,10 @@ import { useAuth } from './AuthProvider';
 function AuthShell({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen items-center justify-center p-3 sm:p-6">
+      {/* Light / dark switch, as on every other page. It has its own background so it reads over the artwork too. */}
+      <div className="fixed right-4 top-4 z-20">
+        <ThemeToggle className="border-line bg-bg-secondary text-ink-secondary hover:border-line-active" />
+      </div>
       <div className="relative w-full max-w-5xl overflow-hidden rounded-xl shadow-card">
         <div aria-hidden className="auth-art absolute inset-0" />
         <div className="relative grid lg:grid-cols-[1.1fr_0.9fr]">

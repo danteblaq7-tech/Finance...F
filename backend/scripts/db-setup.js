@@ -19,6 +19,7 @@ const DEMO_PASSWORD = process.env.DEMO_PASSWORD || 'Finesse@2026';
 const DEMO_USERS = [
   { email: 'admin@finesse.ac.ke', name: 'Grace Wanjiru', role: 'admin', university: 'Moi University' },
   { email: 'staff@finesse.ac.ke', name: 'Susan Otieno', role: 'staff', university: 'Moi University' },
+  { email: 'lecturer@finesse.ac.ke', name: 'Dr Peter Otieno', role: 'lecturer', university: 'Moi University' },
   { email: 'amina@students.finesse.ac.ke', name: 'Amina Hassan', role: 'student', student_id: 'EGM/027/2024', university: 'Moi University', course: 'BSc Electrical Engineering', year_of_study: '2' },
   { email: 'brian@students.finesse.ac.ke', name: 'Brian Kiprop', role: 'student', student_id: 'SCI/114/2023', university: 'Moi University', course: 'BSc Computer Science', year_of_study: '3' },
   { email: 'cynthia@students.finesse.ac.ke', name: 'Cynthia Chebet', role: 'student', student_id: 'BUS/052/2025', university: 'Moi University', course: 'BCom Finance', year_of_study: '1' },

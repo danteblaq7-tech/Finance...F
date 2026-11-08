@@ -572,6 +572,100 @@ drop policy if exists daily_activity_select on public.daily_activity;
 create policy daily_activity_select on public.daily_activity for select to authenticated
   using (public.is_staff());
 
+-- ----------------------------------------------------------------------------
+--  EXAM-HALL SIGN-IN: units, who is registered for them, lecturers, and the signature.
+--
+--  Idea: scanning a student's exam-card QR code (1) proves the card is genuine, (2) lists the units that
+--  student is registered for and allowed to sit, and (3) signs the scanning lecturer's unit as "sat".
+--  The signature is one atomic UPDATE (see routes/invigilation.js), so a unit can only be signed once.
+--  Students are matched by their institutional student ID, the same ID the fee records and exam cards use.
+-- ----------------------------------------------------------------------------
+
+-- A new role for invigilating lecturers: they can scan cards and see the register of THEIR units, nothing else.
+alter table public.profiles drop constraint if exists profiles_role_check;
+alter table public.profiles add  constraint profiles_role_check check (role in ('student','staff','admin','lecturer'));
+
+-- exam_units: the units examined in one exam period (optionally with date, time and venue)
+create table if not exists public.exam_units (
+  id             uuid primary key default gen_random_uuid(),
+  exam_period_id uuid not null references public.exam_periods(id) on delete cascade,
+  unit_code      text not null,
+  unit_name      text not null default '',
+  exam_date      date,
+  start_time     time,
+  end_time       time,
+  venue          text,
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now(),
+  constraint uq_exam_unit unique (exam_period_id, unit_code)
+);
+
+-- Which lecturers may sign a unit
+create table if not exists public.exam_unit_lecturers (
+  exam_unit_id uuid not null references public.exam_units(id) on delete cascade,
+  lecturer_id  uuid not null references public.profiles(id)  on delete cascade,
+  primary key (exam_unit_id, lecturer_id)
+);
+create index if not exists idx_unit_lecturers_lecturer on public.exam_unit_lecturers (lecturer_id);
+
+-- unit_registrations: one row per student per unit = "this student may sit this unit".
+-- signed_at is NULL until the student has sat the exam; once set, the unit cannot be signed again.
+create table if not exists public.unit_registrations (
+  id             uuid primary key default gen_random_uuid(),
+  exam_unit_id   uuid not null references public.exam_units(id) on delete cascade,
+  student_id     text not null,                 -- institutional ID (profiles.student_id), upper-case
+  allowed        boolean not null default true, -- false = barred from this unit (e.g. missing coursework)
+  block_reason   text,
+  signed_at      timestamptz,
+  signed_by      uuid references public.profiles(id) on delete set null,
+  signed_by_name text,                          -- kept even if the lecturer's account is later removed
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now(),
+  constraint uq_unit_registration unique (exam_unit_id, student_id),
+  constraint chk_signature_pair check ((signed_at is null) = (signed_by_name is null))
+);
+create index if not exists idx_unit_reg_student on public.unit_registrations (student_id);
+
+-- Every signature, reset and bar/allow, with who and why (the audit trail for disputes)
+create table if not exists public.unit_sign_log (
+  id              bigint generated always as identity primary key,
+  registration_id uuid not null references public.unit_registrations(id) on delete cascade,
+  action          text not null check (action in ('signed','reset','barred','allowed')),
+  by_user         uuid references public.profiles(id) on delete set null,
+  by_name         text,
+  reason          text,
+  at              timestamptz not null default now()
+);
+create index if not exists idx_unit_sign_log_reg on public.unit_sign_log (registration_id, at);
+
+do $$
+declare t text;
+begin
+  foreach t in array array['exam_units','unit_registrations'] loop
+    execute format('drop trigger if exists trg_%1$s_updated_at on public.%1$I', t);
+    execute format('create trigger trg_%1$s_updated_at before update on public.%1$I for each row execute function public.set_updated_at()', t);
+  end loop;
+end $$;
+
+alter table public.exam_units          enable row level security;
+alter table public.exam_unit_lecturers enable row level security;
+alter table public.unit_registrations  enable row level security;
+alter table public.unit_sign_log       enable row level security;
+
+drop policy if exists exam_units_select on public.exam_units;
+create policy exam_units_select on public.exam_units for select to authenticated using (public.is_staff());
+
+drop policy if exists exam_unit_lecturers_select on public.exam_unit_lecturers;
+create policy exam_unit_lecturers_select on public.exam_unit_lecturers for select to authenticated using (public.is_staff());
+
+-- A student may read their own registrations (so the apps can list their units); staff may read all.
+drop policy if exists unit_registrations_select on public.unit_registrations;
+create policy unit_registrations_select on public.unit_registrations for select to authenticated
+  using (public.is_staff() or student_id = public.my_student_id());
+
+drop policy if exists unit_sign_log_select on public.unit_sign_log;
+create policy unit_sign_log_select on public.unit_sign_log for select to authenticated using (public.is_staff());
+
 -- No INSERT / UPDATE / DELETE policies exist, so clients cannot write at all.
 -- Belt and braces: also remove the privileges.
 revoke all on all tables in schema public from anon;

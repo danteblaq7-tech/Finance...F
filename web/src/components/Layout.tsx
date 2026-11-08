@@ -1,6 +1,6 @@
 import {
-  CalendarClock, ClipboardList, CreditCard, FileSpreadsheet, GraduationCap, LogOut, Mail,
-  Inbox, LayoutDashboard, PlusCircle, type LucideIcon,
+  CalendarClock, ClipboardCheck, ClipboardList, CreditCard, FileSpreadsheet, GraduationCap, LogOut, Mail,
+  Inbox, LayoutDashboard, PlusCircle, ScanLine, type LucideIcon,
 } from 'lucide-react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -15,6 +15,11 @@ const STUDENT_NAV: NavItem[] = [
   { to: '/exam-card', label: 'Exam Card', icon: CreditCard },
 ];
 
+const LECTURER_NAV: NavItem[] = [
+  { to: '/scan', label: 'Scan Cards', icon: ScanLine },
+  { to: '/units', label: 'My Units', icon: ClipboardCheck },
+];
+
 const STAFF_NAV: NavItem[] = [
   { to: '/staff/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/staff/queue', label: 'Ticket Queue', icon: Inbox },
@@ -22,12 +27,14 @@ const STAFF_NAV: NavItem[] = [
   { to: '/staff/fee-records', label: 'Fee Records', icon: FileSpreadsheet },
   { to: '/staff/exam-periods', label: 'Exam Periods', icon: CalendarClock },
   { to: '/staff/slots', label: 'Appointment Slots', icon: CalendarClock },
+  { to: '/scan', label: 'Scan Cards', icon: ScanLine },
+  { to: '/units', label: 'Exam Units', icon: ClipboardCheck },
   { to: '/staff/templates', label: 'Email Templates', icon: Mail },
 ];
 
 export function Layout() {
   const { user, logout } = useAuth();
-  const nav = user?.role === 'student' ? STUDENT_NAV : STAFF_NAV;
+  const nav = user?.role === 'student' ? STUDENT_NAV : user?.role === 'lecturer' ? LECTURER_NAV : STAFF_NAV;
 
   // Desktop: the sidebar fills the left edge and stays put; only the content area scrolls.
   // Phone: the sidebar becomes a strip across the top and the page scrolls normally.
