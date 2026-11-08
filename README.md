@@ -276,6 +276,9 @@ otherwise it is readable and writable by the whole internet. Put the change in `
 | `✖ …Finesse tables do not exist yet` | The owner hasn't run `npm run db:setup` for this project yet (§2 step 4). |
 | `✖ Supabase rejected SUPABASE_SERVICE_ROLE_KEY` | Wrong key, or `SUPABASE_URL` belongs to a different project than the key. |
 | Login says "Incorrect email or password" | Demo password is `Finesse@2026` (capital F, `@`). If the demo users were never created, run `npm run db:seed`. |
+| Login says "Incorrect email or password" for a **demo** account (browser console: `auth/v1/token … 400`) | Either the account does not exist yet (`lecturer@finesse.ac.ke` was added in a later version: run `npm run db:schema` then `npm run db:seed`), or its password was changed. Run `npm run db:passwords --prefix backend` (from the project root) to put every existing demo account back on `Finesse@2026`. Check *Supabase ▸ Authentication ▸ Users* to see which accounts exist. |
+| An API call returns **503 "The database is out of date for this feature"** (older builds: **500** with `relation "unit_registrations" does not exist` in the `[api]` terminal) | A newer version added tables and `npm run db:schema` has not been run on this Supabase project yet. The project owner runs it once (safe to re-run, never deletes data). |
+| `✖ The database has not been updated for the latest version yet` when seeding | Same fix: `npm run db:schema` first, then `npm run db:seed`. |
 | Signed in, then bounced back to login | The API rejected the session. Check `SUPABASE_URL` matches in `backend/.env` and `web/.env`; check the `[api]` terminal for errors. |
 | Browser shows **"Cannot reach the Finesse API"** | The API isn't running. Check the `[api]` terminal and http://localhost:4000/api/health. |
 | `EADDRINUSE :4000` or `:5173` | Port in use. Stop the other process, or set `PORT` in `backend/.env` (and the proxy target in `web/vite.config.ts`). |

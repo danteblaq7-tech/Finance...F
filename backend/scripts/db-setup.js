@@ -4,6 +4,7 @@
 //   npm run db:seed     create the demo logins in Supabase Auth, then load the demo data
 //   npm run db:setup    both of the above  ← what you want the first time
 //   npm run db:reset    ⚠ DROP every Finesse table (asks first), then run db:setup yourself
+//   npm run db:passwords  put every existing demo account back on the demo password
 //
 // Everything here talks to the project in backend/.env. Because the whole team shares one Supabase project,
 // the project OWNER runs this once; teammates never need to.
@@ -62,12 +63,32 @@ function refuseInProduction(what) {
   if (process.env.NODE_ENV === 'production') throw new Error(`Refusing to ${what} while NODE_ENV=production.`);
 }
 
+// The demo data needs the newest tables and the 'lecturer' role. Say so up front instead of failing half-way through.
+async function requireCurrentSchema() {
+  const ok = await queryOne("SELECT to_regclass('public.exam_units') IS NOT NULL AS tables, pg_get_constraintdef(c.oid) LIKE '%lecturer%' AS role_ok FROM pg_constraint c WHERE c.conname = 'profiles_role_check' AND c.conrelid = 'public.profiles'::regclass");
+  if (!ok?.tables || !ok?.role_ok) throw new Error('The database has not been updated for the latest version yet. Run "npm run db:schema" first (it is safe to re-run), then run this again.');
+}
+
 async function seed() {
   refuseInProduction('load demo data');
+  await requireCurrentSchema();
   await createDemoUsers();
   console.log('→ Loading demo data (database/supabase/seed_demo.sql) …');
   await runFile('seed_demo.sql');
   console.log(`✔ Demo data loaded. Every demo account uses the password: ${DEMO_PASSWORD}`);
+}
+
+// Set every EXISTING demo account's password back to the demo password (use when a demo login says "Invalid login credentials").
+async function demoPasswords() {
+  refuseInProduction('reset the demo passwords');
+  console.log('→ Resetting demo passwords …');
+  for (const u of DEMO_USERS) {
+    const profile = await queryOne('SELECT id FROM profiles WHERE email = $1', [u.email]);
+    if (!profile) { console.log(`  - ${u.email}: no such account (run "npm run db:seed" to create it)`); continue; }
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(profile.id, { password: DEMO_PASSWORD, email_confirm: true });
+    console.log(error ? `  ! ${u.email}: ${error.message}` : `  = ${u.email}`);
+  }
+  console.log(`✔ Done. The demo password is: ${DEMO_PASSWORD}`);
 }
 
 async function reset() {
@@ -91,6 +112,7 @@ async function reset() {
 const commands = {
   schema: applySchema,
   seed,
+  passwords: demoPasswords,
   all: async () => {
     await applySchema();
     await seed();
