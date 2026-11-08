@@ -148,6 +148,7 @@ function Register({ unit, staff }: { unit: ExamUnit; staff: boolean }) {
         <Button variant="secondary" onClick={exportCsv}><Download className="h-4 w-4" aria-hidden /> CSV</Button>
       </div>
 
+      {staff && <AddStudent unit={unit} onDone={refresh} />}
       {rows.length === 0 ? <p className="py-4 text-ink-secondary">No students match.</p> : (
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
@@ -189,6 +190,30 @@ function Register({ unit, staff }: { unit: ExamUnit; staff: boolean }) {
       )}
       {reset.isError && <div className="mt-3"><ErrorNote error={reset.error} /></div>}
     </div>
+  );
+}
+
+// ── add one student to a unit (retakes, late registrations) ──────────────
+
+function AddStudent({ unit, onDone }: { unit: ExamUnit; onDone: () => void }) {
+  const [id, setId] = useState('');
+  const [note, setNote] = useState<string | null>(null);
+  const add = useMutation({
+    mutationFn: (studentId: string) =>
+      api.post<{ added: number }>('/exam-units/registrations/import', { periodId: unit.exam_period_id, rows: [{ student_id: studentId, unit_code: unit.unit_code }] }),
+    onSuccess: (r, studentId) => {
+      setNote(r.added ? `${studentId.toUpperCase()} added to ${unit.unit_code}.` : `${studentId.toUpperCase()} is already on this register.`);
+      setId('');
+      onDone();
+    },
+  });
+  return (
+    <form className="mb-3 flex flex-wrap items-center gap-2" onSubmit={(e) => { e.preventDefault(); setNote(null); if (id.trim()) add.mutate(id.trim()); }}>
+      <input className="input w-56" value={id} onChange={(e) => setId(e.target.value)} placeholder="Add a student by ID, e.g. COM/072/23" aria-label={`Add a student to ${unit.unit_code}`} autoComplete="off" />
+      <Button type="submit" variant="secondary" loading={add.isPending} disabled={!id.trim()}><UserPlus className="h-4 w-4" aria-hidden /> Add</Button>
+      {note && <span role="status" className="text-xs text-brand-green">{note}</span>}
+      {add.isError && <ErrorNote error={add.error} />}
+    </form>
   );
 }
 

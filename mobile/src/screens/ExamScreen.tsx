@@ -2,11 +2,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { View } from 'react-native';
 import { Badge, Button, Card, Empty, ErrorNote, Header, Screen, Spinner, AppText } from '@/components/ui';
+import { UnitChecklist } from '@/components/UnitChecklist';
 import { useAuth } from '@/context/AuthProvider';
 import { api } from '@/lib/api';
 import { EXAM_STATUS } from '@/lib/constants';
 import { cardNumber, formatDate, formatDateTime, formatKsh, toDateString } from '@/lib/format';
-import type { Application, ExamPeriod, FeeRecord, FeeStatement } from '@/lib/types';
+import type { Application, ExamPeriod, FeeRecord, FeeStatement, MyUnit } from '@/lib/types';
 import { useTheme } from '@/theme/ThemeProvider';
 import { FONTS, SPACING } from '@/theme/theme';
 
@@ -18,6 +19,13 @@ const isProvisional = (a: Application) => a.decision_source === 'statement' && !
 function CardView({ app }: { app: Application }) {
   const { colors } = useTheme();
   const { user } = useAuth();
+  // The student's units, ticked off live as lecturers sign them (lib/realtime.ts), with polling as a safety net.
+  const myUnits = useQuery({
+    queryKey: ['my-units', app.exam_period_id],
+    queryFn: () => api.get<{ units?: MyUnit[] }>(`/exam-units/mine?periodId=${app.exam_period_id}`),
+    retry: false,
+    refetchInterval: 15_000,
+  });
   const row = (label: string, value: string) => (
     <View style={{ width: '50%', marginBottom: SPACING.sm + 2 }}>
       <AppText variant="label">{label}</AppText>
@@ -53,6 +61,7 @@ function CardView({ app }: { app: Application }) {
           <AppText selectable style={{ fontFamily: FONTS.display, fontSize: 18, letterSpacing: 3 }}>{app.verification_code}</AppText>
         </View>
       ) : null}
+      {Array.isArray(myUnits.data?.units) ? <UnitChecklist units={myUnits.data.units} /> : null}
       <AppText variant="muted" style={{ fontSize: 11 }}>
         Issued {formatDateTime(app.card_issued_at)}. Show this card, with your student ID, at every examination. Invigilators can confirm it with the verification code.
       </AppText>

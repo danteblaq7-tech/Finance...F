@@ -171,3 +171,16 @@ export interface SentEmail {
   sent_at: string;
   html?: string;
 }
+
+/** One of the student's own units for an exam period (GET /exam-units/mine). */
+export interface MyUnit {
+  id: string;
+  unit_code: string;
+  unit_name: string;
+  exam_date: string | null;
+  start_time: string | null;
+  venue: string | null;
+  allowed: boolean;
+  block_reason: string | null;
+  signed_at: string | null;
+}

@@ -394,7 +394,8 @@ once: a second scan says who signed it and when. (Proven with ten simultaneous s
 1. Create the lecturers' logins (*Set up this exam period → 3. Lecturers*, admin only). Give each a temporary password.
 2. Import **student registrations**: a CSV with `student_id, unit_code` (optional `unit_name, allowed, reason`). Student IDs must match the IDs on fee records and exam cards. Units that do not exist yet are created.
 3. Import **unit details** (optional but recommended): `unit_code, unit_name, exam_date, start_time, end_time, venue, lecturers` (lecturers = e-mails separated by `;`). If a unit has an `exam_date`, it can only be signed on that day.
-4. Check each unit has a lecturer (a unit with none shows *NO LECTURER ASSIGNED*; tick lecturers under *Lecturers*).
+4. Add the odd student by hand (a retake, a late registration): *Exam Units → Show register → Add a student by ID*. Or import a one-row file.
+5. Check each unit has a lecturer (a unit with none shows *NO LECTURER ASSIGNED*; tick lecturers under *Lecturers*).
 
 Both imports can be repeated safely: they never un-sign anyone, and a row with no `allowed` value never overrides a bar you set in the app. Use `allowed = no` plus a `reason` (e.g. missing CAT marks) to refuse a student for one unit.
 
@@ -412,6 +413,10 @@ registration (retakes, supplementary papers), so add those students with a one-r
 2. Point the camera at the QR code. Green *SIGNED IN* shows the student's name and ID to compare with their ID card; red explains why not (not registered, not allowed, not your unit, card revoked/expired, wrong day, already signed).
 3. Untick *Sign automatically* to see the student's units first and tap the one to sign.
 4. A staff phone's own camera app also works: it opens the public check page, which shows *Sign a unit for this student* once you are signed in.
+
+**What students see.** Under the QR code on their exam card (web and mobile app) is a checklist of their units: empty box = not yet,
+ticked = sat (with the time), red cross = not allowed (with the reason). It ticks itself within a second or two of the lecturer's
+scan, no refresh needed (live updates need `npm run db:schema` to have been run, which publishes the table; otherwise it refreshes every 15 seconds).
 
 **Mistakes.** *Exam Units → Show register → Undo* (staff/admin) clears a signature; a reason is required and recorded
 with every signature, reset and bar in `unit_sign_log`. The register can be exported as CSV, and students see their

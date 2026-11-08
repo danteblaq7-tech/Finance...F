@@ -117,6 +117,38 @@ describe('student: exam card', () => {
     await waitFor(() => expect(api.last('POST /applications/e0000000-0000-4000-8000-000000000001/issue')).toBeTruthy());
   });
 
+  it('shows the student their units as a checklist under the card: sat, not yet, and not allowed', async () => {
+    installFakeApi({
+      ...(await signedInAs('student')),
+      'GET /exam-periods': { body: { periods: [period] } },
+      'GET /applications': { body: { applications: [application({ status: 'issued', card_issued_at: '2026-10-12 09:14:00' })] } },
+      'GET /fee-records/mine': { body: { feeRecords: [] } },
+      'GET /exam-units/mine': { body: { units: [
+        { id: 'a', unit_code: 'CSC101', unit_name: 'Intro to Programming', exam_date: null, start_time: null, venue: 'Main Hall', allowed: true, block_reason: null, signed_at: '2026-11-23T09:05:00' },
+        { id: 'b', unit_code: 'CSC102', unit_name: 'Databases', exam_date: null, start_time: null, venue: null, allowed: true, block_reason: null, signed_at: null },
+        { id: 'c', unit_code: 'CSC103', unit_name: 'Networks', exam_date: null, start_time: null, venue: null, allowed: false, block_reason: 'Missing CAT marks', signed_at: null },
+      ] } },
+    });
+    await mount('/exam');
+    expect(await screen.findByText('1 of 2 sat')).toBeTruthy();
+    expect(screen.getByLabelText('CSC101 Intro to Programming, sat')).toBeTruthy();
+    expect(screen.getByLabelText('CSC102 Databases, not yet')).toBeTruthy();
+    expect(screen.getByLabelText('CSC103 Networks, not allowed')).toBeTruthy();
+    expect(screen.getByText('Missing CAT marks')).toBeTruthy();
+  });
+
+  it('says so, instead of showing nothing, when no units are registered yet', async () => {
+    installFakeApi({
+      ...(await signedInAs('student')),
+      'GET /exam-periods': { body: { periods: [period] } },
+      'GET /applications': { body: { applications: [application({ status: 'issued', card_issued_at: '2026-10-12 09:14:00' })] } },
+      'GET /fee-records/mine': { body: { feeRecords: [] } },
+      'GET /exam-units/mine': { body: { units: [] } },
+    });
+    await mount('/exam');
+    expect(await screen.findByText(/No units are registered for you/)).toBeTruthy();
+  });
+
   it('shows the card number for an issued application', async () => {
     await setup(application({ status: 'issued', card_issued_at: '2026-10-12 09:14:00' }));
     await mount('/exam');

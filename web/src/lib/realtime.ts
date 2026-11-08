@@ -4,7 +4,7 @@ import { supabase } from './supabase';
 
 // Tables the database publishes changes for (see database/supabase/schema.sql). Row Level Security still applies:
 // a student only receives events for rows they are allowed to read.
-const LIVE_TABLES = ['tickets', 'slots', 'exam_card_applications', 'fee_records', 'exam_periods', 'fee_statements'] as const;
+const LIVE_TABLES = ['tickets', 'slots', 'exam_card_applications', 'fee_records', 'exam_periods', 'fee_statements', 'unit_registrations'] as const;
 
 /**
  * Live updates: when anyone (a teammate on another laptop, a phone, a staff member…) changes one of the tables above,
