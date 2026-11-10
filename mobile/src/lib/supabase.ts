@@ -12,7 +12,7 @@ const isPlaceholder = (v: string) => /your[-_ ]?(project|anon)|paste[-_ ]/i.test
 export const supabaseConfigured = !!url && !!anonKey && !isPlaceholder(url) && !isPlaceholder(anonKey);
 
 /**
- * Keeps the Supabase session in the device keychain (expo-secure-store).
+ * Keeps native Supabase sessions in SecureStore and web sessions in localStorage.
  * SecureStore refuses values over ~2 KB and a session (tokens + user) is bigger, so it is stored in chunks.
  */
 const CHUNK = 1800;

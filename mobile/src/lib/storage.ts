@@ -1,4 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
 
 // Keys may only contain letters, digits, '.', '-' and '_' (SecureStore rule).
 export const KEYS = {
@@ -8,6 +9,7 @@ export const KEYS = {
 } as const;
 
 export async function getItem(key: string): Promise<string | null> {
+  if (Platform.OS === 'web') return globalThis.localStorage.getItem(key);
   try {
     return await SecureStore.getItemAsync(key);
   } catch {
@@ -16,6 +18,10 @@ export async function getItem(key: string): Promise<string | null> {
 }
 
 export async function setItem(key: string, value: string): Promise<void> {
+  if (Platform.OS === 'web') {
+    globalThis.localStorage.setItem(key, value);
+    return;
+  }
   try {
     await SecureStore.setItemAsync(key, value);
   } catch {
@@ -24,6 +30,10 @@ export async function setItem(key: string, value: string): Promise<void> {
 }
 
 export async function removeItem(key: string): Promise<void> {
+  if (Platform.OS === 'web') {
+    globalThis.localStorage.removeItem(key);
+    return;
+  }
   try {
     await SecureStore.deleteItemAsync(key);
   } catch {
