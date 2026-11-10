@@ -1,10 +1,11 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { usePathname, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Alert, Animated, BackHandler, Easing, PanResponder, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Animated, BackHandler, Easing, PanResponder, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import { useAuth } from '@/context/AuthProvider';
+import { confirmSignOut } from '@/lib/confirmSignOut';
 import { activeItem, type NavItem } from '@/lib/nav';
 import { useTheme } from '@/theme/ThemeProvider';
 import { FONTS, SPACING } from '@/theme/theme';
@@ -69,15 +70,10 @@ export function Shell({ items, children }: { items: NavItem[]; children: ReactNo
     closeMenu();
     if (pathname !== item.href) router.replace(item.href as never);
   };
-  const confirmSignOut = () => Alert.alert('Sign out?', undefined, [
-    { text: 'Cancel', style: 'cancel' },
-    { text: 'Sign out', style: 'destructive', onPress: () => void logout() },
-  ]);
-
   return (
     <View style={{ flex: 1, backgroundColor: colors.side_bg }}>
       {mounted ? (
-        <Menu W={W} items={items} active={active} onSelect={go} onSignOut={confirmSignOut} />
+        <Menu W={W} items={items} active={active} onSelect={go} onSignOut={() => confirmSignOut(logout)} />
       ) : null}
 
       <Animated.View {...pan.panHandlers} style={{ flex: 1, backgroundColor: colors.side_bg, transform: [{ translateX: x }] }}>

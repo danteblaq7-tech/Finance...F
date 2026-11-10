@@ -1,12 +1,13 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
-import { Alert, Switch, View } from 'react-native';
+import { Switch, View } from 'react-native';
 import { z } from 'zod';
 import { FormTextField } from '@/components/forms';
 import { AppText, Badge, Button, Card, ErrorNote, Header, Screen } from '@/components/ui';
 import { useAuth } from '@/context/AuthProvider';
 import { api } from '@/lib/api';
+import { confirmSignOut } from '@/lib/confirmSignOut';
 import { initials } from '@/lib/format';
 import { useTheme } from '@/theme/ThemeProvider';
 import { FONTS, SPACING } from '@/theme/theme';
@@ -80,7 +81,7 @@ export function ProfileScreen({ notice }: { notice?: string } = {}) {
       <ServerSettings />
 
       <Button title="Sign out" variant="danger" style={{ marginTop: SPACING.lg }}
-        onPress={() => Alert.alert('Sign out?', undefined, [{ text: 'Cancel', style: 'cancel' }, { text: 'Sign out', style: 'destructive', onPress: () => void logout() }])} />
+        onPress={() => confirmSignOut(logout)} />
     </Screen>
   );
 }
