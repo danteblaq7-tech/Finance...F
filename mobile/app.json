@@ -28,7 +28,11 @@
       "expo-secure-store",
       "expo-font",
       "expo-status-bar",
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-camera",
+        { "cameraPermission": "Finesse uses the camera to scan student exam cards." }
+      ]
     ],
     "scheme": "finesse"
   }

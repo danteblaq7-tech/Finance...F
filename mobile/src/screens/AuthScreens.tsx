@@ -1,9 +1,10 @@
 import { zodResolver } from '@hookform/resolvers/zod';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useContext, useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { z } from 'zod';
 import { FormTextField } from '@/components/forms';
@@ -37,6 +38,7 @@ function Glow({ right, bottom, radius, color, steps = 18 }: { right: number; bot
  */
 function Hero() {
   const insets = useContext(SafeAreaInsetsContext);
+  const { isDark, toggle } = useTheme();
   const top = insets?.top ?? 0;
   return (
     <View style={{ backgroundColor: '#07172B', overflow: 'hidden', borderBottomLeftRadius: RADIUS.xl, borderBottomRightRadius: RADIUS.xl, paddingTop: top + SPACING.lg, paddingBottom: SPACING.xl + SPACING.lg, paddingHorizontal: SPACING.lg }}>
@@ -45,6 +47,9 @@ function Hero() {
       {STARS.map((st) => (
         <View key={`${st.x}-${st.y}`} pointerEvents="none" style={{ position: 'absolute', left: `${st.x}%`, top: `${st.y}%`, width: st.s, height: st.s, borderRadius: st.s, backgroundColor: '#FFFFFF', opacity: 0.6 }} />
       ))}
+      <Pressable accessibilityRole="button" accessibilityLabel="Switch theme" hitSlop={10} onPress={toggle} style={{ position: 'absolute', right: SPACING.md, top: top + SPACING.sm }}>
+        <Ionicons name={isDark ? 'sunny-outline' : 'moon-outline'} size={22} color="#FFFFFF" />
+      </Pressable>
       <AppText style={{ fontFamily: FONTS.display, fontSize: 30, letterSpacing: 4, color: '#FFFFFF' }}>FINESSE</AppText>
       <AppText variant="label" style={{ marginTop: 4, color: 'rgba(255,255,255,0.7)' }}>Campus Finance Management</AppText>
     </View>

@@ -137,6 +137,18 @@ describe('student: exam card', () => {
     expect(screen.getByText('Missing CAT marks')).toBeTruthy();
   });
 
+  it('draws a QR code on the issued card, with the code underneath', async () => {
+    installFakeApi({
+      ...(await signedInAs('student')),
+      'GET /exam-periods': { body: { periods: [period] } },
+      'GET /applications': { body: { applications: [application({ status: 'issued', card_issued_at: '2026-10-12 09:14:00', verification_code: 'BZ5M4ZQVN5ZC' })] } },
+      'GET /fee-records/mine': { body: { feeRecords: [] } },
+    });
+    await mount('/exam');
+    expect(await screen.findByLabelText('Verification QR code')).toBeTruthy();
+    expect(screen.getByText('BZ5M4ZQVN5ZC')).toBeTruthy();
+  });
+
   it('says so, instead of showing nothing, when no units are registered yet', async () => {
     installFakeApi({
       ...(await signedInAs('student')),

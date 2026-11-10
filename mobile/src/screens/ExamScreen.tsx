@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { View } from 'react-native';
+import QRCode from 'react-native-qrcode-svg';
 import { Badge, Button, Card, Empty, ErrorNote, Header, Screen, Spinner, AppText } from '@/components/ui';
 import { UnitChecklist } from '@/components/UnitChecklist';
 import { useAuth } from '@/context/AuthProvider';
 import { api } from '@/lib/api';
+import { cardQrValue } from '@/lib/cards';
 import { EXAM_STATUS } from '@/lib/constants';
 import { cardNumber, formatDate, formatDateTime, formatKsh, toDateString } from '@/lib/format';
 import type { Application, ExamPeriod, FeeRecord, FeeStatement, MyUnit } from '@/lib/types';
@@ -33,7 +35,7 @@ function CardView({ app }: { app: Application }) {
     </View>
   );
   return (
-    <View accessibilityLabel="Examination card" style={{ borderWidth: 2, borderColor: colors.accent_teal_lt, borderRadius: 16, padding: SPACING.md, marginTop: SPACING.md, backgroundColor: colors.bg_tertiary }}>
+    <View accessibilityLabel="Examination card" style={{ borderWidth: 2, borderColor: colors.accent_teal_lt, borderRadius: 16, padding: SPACING.md + 4, marginTop: SPACING.md, backgroundColor: colors.bg_secondary }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: SPACING.md }}>
         <View>
           <AppText style={{ fontFamily: FONTS.display, fontSize: 20, letterSpacing: 3, color: colors.accent_teal_lt }}>FINESSE</AppText>
@@ -56,14 +58,18 @@ function CardView({ app }: { app: Application }) {
         {row('Exam dates', `${formatDate(app.exam_start_date)} – ${formatDate(app.exam_end_date)}`)}
       </View>
       {app.verification_code ? (
-        <View style={{ alignItems: 'center', marginBottom: SPACING.sm }}>
-          <AppText variant="label">Verification code</AppText>
-          <AppText selectable style={{ fontFamily: FONTS.display, fontSize: 18, letterSpacing: 3 }}>{app.verification_code}</AppText>
+        <View style={{ alignItems: 'center', marginVertical: SPACING.md }}>
+          {/* Always dark-on-white, whatever the theme: a QR code needs the contrast to scan. */}
+          <View accessibilityLabel="Verification QR code" style={{ padding: 12, backgroundColor: '#FFFFFF', borderRadius: 14 }}>
+            <QRCode value={cardQrValue(app.verification_code)} size={160} color="#0B1F2A" backgroundColor="#FFFFFF" />
+          </View>
+          <AppText variant="label" style={{ marginTop: SPACING.sm }}>Verification code</AppText>
+          <AppText selectable style={{ fontFamily: FONTS.display, fontSize: 16, letterSpacing: 3 }}>{app.verification_code}</AppText>
         </View>
       ) : null}
       {Array.isArray(myUnits.data?.units) ? <UnitChecklist units={myUnits.data.units} /> : null}
       <AppText variant="muted" style={{ fontSize: 11 }}>
-        Issued {formatDateTime(app.card_issued_at)}. Show this card, with your student ID, at every examination. Invigilators can confirm it with the verification code.
+        Issued {formatDateTime(app.card_issued_at)}. Present this card, with your student ID, at every examination. Invigilators can confirm it is genuine by scanning the QR code.
       </AppText>
     </View>
   );

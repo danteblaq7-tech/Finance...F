@@ -1,10 +1,12 @@
-import { type ReactNode } from 'react';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { useContext, type ComponentProps, type ReactNode } from 'react';
 import {
   ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet,
   Text, TextInput, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState } from 'react';
+import { InShellContext } from './ShellContext';
 import { useTheme } from '@/theme/ThemeProvider';
 import { FONTS, RADIUS, SPACING, type Palette } from '@/theme/theme';
 
@@ -12,30 +14,31 @@ type Variant = 'body' | 'title' | 'heading' | 'label' | 'muted' | 'bold';
 
 export function AppText({
   variant = 'body', style, ...rest
-}: { variant?: Variant; style?: StyleProp<TextStyle>; children?: ReactNode; numberOfLines?: number; selectable?: boolean; onPress?: () => void }) {
+}: { variant?: Variant; style?: StyleProp<TextStyle>; children?: ReactNode; numberOfLines?: number; selectable?: boolean; onPress?: () => void; accessibilityRole?: 'header' | 'text' }) {
   const { colors } = useTheme();
   const styles: Record<Variant, TextStyle> = {
-    body: { fontFamily: FONTS.body, fontSize: 13, color: colors.text_primary },
-    bold: { fontFamily: FONTS.bold, fontSize: 13, color: colors.text_primary },
-    muted: { fontFamily: FONTS.body, fontSize: 12, color: colors.text_secondary },
-    label: { fontFamily: FONTS.bold, fontSize: 10, letterSpacing: 1.5, textTransform: 'uppercase', color: colors.text_label },
+    body: { fontFamily: FONTS.body, fontSize: 14, lineHeight: 20, color: colors.text_primary },
+    bold: { fontFamily: FONTS.bold, fontSize: 14, lineHeight: 20, color: colors.text_primary },
+    muted: { fontFamily: FONTS.body, fontSize: 13, lineHeight: 18, color: colors.text_secondary },
+    label: { fontFamily: FONTS.bold, fontSize: 11, letterSpacing: 1.6, textTransform: 'uppercase', color: colors.text_label },
     heading: { fontFamily: FONTS.heading, fontSize: 15, color: colors.text_primary },
-    title: { fontFamily: FONTS.heading, fontSize: 20, letterSpacing: 0.5, color: colors.text_primary },
+    title: { fontFamily: FONTS.heading, fontSize: 22, letterSpacing: 0.5, color: colors.text_primary },
   };
   return <Text {...rest} style={[styles[variant], style]} />;
 }
 
 /** Page container: safe area + themed background + optional scroll and pull-to-refresh. */
 export function Screen({
-  children, scroll = true, onRefresh, refreshing = false, edges = ['top'], padded = true,
+  children, scroll = true, onRefresh, refreshing = false, edges = [], padded = true,
 }: {
   children: ReactNode; scroll?: boolean; onRefresh?: () => void; refreshing?: boolean;
   edges?: ('top' | 'bottom' | 'left' | 'right')[]; padded?: boolean;
 }) {
   const { colors } = useTheme();
+  const inShell = useContext(InShellContext);
   const body = scroll ? (
     <ScrollView
-      contentContainerStyle={[padded && { padding: SPACING.md }, { paddingBottom: SPACING.xl }]}
+      contentContainerStyle={[padded && { padding: inShell ? SPACING.lg - 4 : SPACING.md }, { paddingBottom: SPACING.xxl }]}
       keyboardShouldPersistTaps="handled"
       refreshControl={onRefresh ? <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent_teal_lt} /> : undefined}
     >
@@ -45,7 +48,7 @@ export function Screen({
     <View style={[{ flex: 1 }, padded && { padding: SPACING.md }]}>{children}</View>
   );
   return (
-    <SafeAreaView edges={edges} style={{ flex: 1, backgroundColor: colors.bg_primary }}>
+    <SafeAreaView edges={edges} style={{ flex: 1, backgroundColor: inShell ? 'transparent' : colors.bg_primary }}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         {body}
       </KeyboardAvoidingView>
@@ -57,32 +60,38 @@ export function Header({ title, subtitle, right }: { title: string; subtitle?: s
   return (
     <View style={s.header}>
       <View style={{ flex: 1 }}>
-        <AppText variant="title">{title}</AppText>
-        {subtitle ? <AppText variant="muted" style={{ marginTop: 4 }}>{subtitle}</AppText> : null}
+        <AppText variant="title" accessibilityRole="header">{title}</AppText>
+        {subtitle ? <AppText variant="muted" style={{ marginTop: 6 }}>{subtitle}</AppText> : null}
       </View>
       {right}
     </View>
   );
 }
 
-export function Card({ children, style, onPress }: { children: ReactNode; style?: StyleProp<ViewStyle>; onPress?: () => void }) {
-  const { colors } = useTheme();
-  const base: ViewStyle = { backgroundColor: colors.bg_secondary, borderColor: colors.border, borderWidth: 1, borderRadius: RADIUS.lg, padding: SPACING.md };
+export function Card({ children, style, onPress, accessibilityLabel, accessibilityRole }: {
+  children: ReactNode; style?: StyleProp<ViewStyle>; onPress?: () => void; accessibilityLabel?: string; accessibilityRole?: 'alert' | 'summary';
+}) {
+  const { colors, isDark } = useTheme();
+  const shadow: ViewStyle = isDark ? {} : { shadowColor: '#0F2A3A', shadowOpacity: 0.08, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 1 };
+  const base: ViewStyle = { backgroundColor: colors.bg_secondary, borderColor: colors.border, borderWidth: 1, borderRadius: RADIUS.lg, padding: SPACING.md + 4, ...shadow };
   if (onPress) {
     return (
-      <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [base, pressed && { borderColor: colors.border_active }, style]}>
+      <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress} style={({ pressed }) => [base, pressed && { borderColor: colors.border_active }, style]}>
         {children}
       </Pressable>
     );
   }
-  return <View style={[base, style]}>{children}</View>;
+  return <View accessibilityLabel={accessibilityLabel} accessibilityRole={accessibilityRole} style={[base, style]}>{children}</View>;
 }
 
 type BtnVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
 
 export function Button({
-  title, onPress, variant = 'primary', loading, disabled, style, testID,
-}: { title: string; onPress: () => void; variant?: BtnVariant; loading?: boolean; disabled?: boolean; style?: StyleProp<ViewStyle>; testID?: string }) {
+  title, onPress, variant = 'primary', loading, disabled, style, testID, size = 'md', icon,
+}: {
+  title: string; onPress: () => void; variant?: BtnVariant; loading?: boolean; disabled?: boolean; style?: StyleProp<ViewStyle>; testID?: string;
+  size?: 'md' | 'sm'; icon?: ComponentProps<typeof Ionicons>['name'];
+}) {
   const { colors } = useTheme();
   const bg: Record<BtnVariant, string> = { primary: colors.accent_teal, secondary: colors.bg_tertiary, danger: colors.accent_red, ghost: 'transparent' };
   const fg = variant === 'secondary' || variant === 'ghost' ? colors.text_primary : '#FFFFFF';
@@ -95,11 +104,12 @@ export function Button({
       disabled={off}
       onPress={onPress}
       style={({ pressed }) => [
-        s.btn, { backgroundColor: bg[variant], borderColor: variant === 'secondary' ? colors.border : 'transparent', opacity: off ? 0.5 : pressed ? 0.85 : 1 }, style,
+        s.btn, size === 'sm' && { paddingVertical: 6, minHeight: 34, paddingHorizontal: 12 },
+        { backgroundColor: bg[variant], borderColor: variant === 'secondary' ? colors.border : 'transparent', opacity: off ? 0.5 : pressed ? 0.85 : 1 }, style,
       ]}
     >
-      {loading ? <ActivityIndicator color={fg} size="small" /> : null}
-      <Text style={{ color: fg, fontFamily: FONTS.button, fontSize: 12, letterSpacing: 1.2, textTransform: 'uppercase' }}>{title}</Text>
+      {loading ? <ActivityIndicator color={fg} size="small" /> : icon ? <Ionicons name={icon} size={size === 'sm' ? 14 : 16} color={fg} /> : null}
+      <Text style={{ color: fg, fontFamily: FONTS.button, fontSize: size === 'sm' ? 10 : 12, letterSpacing: 1.2, textTransform: 'uppercase' }}>{title}</Text>
     </Pressable>
   );
 }
@@ -238,7 +248,7 @@ export function NoteModal({
 }
 
 const s = StyleSheet.create({
-  header: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: SPACING.lg, gap: 12 },
+  header: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: SPACING.lg + 8, gap: 12 },
   btn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1,
     borderRadius: RADIUS.md, paddingVertical: 12, paddingHorizontal: SPACING.md, minHeight: 44,

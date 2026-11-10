@@ -219,15 +219,27 @@ automatically and tries `http://<your-computer>:4000`. If sign-in says *"Can't r
 4. Don't start Expo with `--tunnel`: a tunnel carries the app but not your API on port 4000.
 5. Check the API from your computer first: `npm run check:api -- 192.168.1.5:4000`.
 
-| | Students | Staff / admin |
-|---|---|---|
-| Tickets | raise, list, view replies, cancel | queue with filters, open a ticket, set status/priority, write notes |
-| Appointments | pick a day and time, book / cancel | see who booked |
-| Exam card | apply, see why rejected, re-apply, generate the card, view it on screen | list applications, **approve manually** with a recorded reason |
-| Fees | see your own balance on the exam screen | search records, **grant exceptions** |
-| Account | profile, theme, change password, server address, sign out | same |
+**The app is laid out like the web app.** A teal top bar carries the brand and a menu button; the page sits on a white panel.
+The menu is the web's side panel: it slides in from the left behind the page, the active item joins the page with the same
+curved corner, and the account block (name, role, theme switch, sign out) sits at the bottom. Swipe from the left edge to open it,
+or tap the page to close it. Each role sees the same menu as on the web, in the same order, plus **Account** (password, server address).
 
-Web-only for now: fee **CSV import**, creating **exam periods**, **generating slots**, the **email template editor**.
+| Menu item | Student | Lecturer | Staff / admin |
+|---|---|---|---|
+| My Tickets / Raise Ticket | raise, list, view replies, cancel, book an appointment | | |
+| Exam Card | apply, see why rejected, the card **with its QR code and a live units checklist** | | |
+| Dashboard, Ticket Queue, Exam Applications, Fee Records | | | same as the web (manual approval, exceptions, revoke) |
+| Exam Periods, Appointment Slots | | | create / activate periods; generate slots |
+| Scan Cards | | scan a card with the camera, sign your unit | same, any unit |
+| My Units / Exam Units | | your units and their registers | all units; bar / allow, undo a signature, add one student |
+| Account | profile, theme, password, server, sign out | same | same |
+
+Web-only: fee **CSV import**, the unit and registration **CSV imports**, creating lecturer logins, and the **email template editor**
+(a code editor that only makes sense on a computer).
+
+**Camera:** *Scan Cards* uses the phone camera (Expo Go supports it; a standalone APK needs a fresh `eas build`, because the camera,
+SVG and QR libraries are native code). **QR link:** set `EXPO_PUBLIC_WEB_URL` in `mobile/.env` to your web app's address and the QR on
+a student's card holds a link to the public check page, like the printed web card; without it the QR holds just the card code, which the Finesse scanner reads fine.
 
 **Release builds:** a store build must call the API over **HTTPS** (build with
 `EXPO_PUBLIC_API_URL=https://your-api`). Supabase itself is already HTTPS.
@@ -469,11 +481,10 @@ Checklist (nothing here is optional for a real deployment):
   pooler) were **not** reachable from where this was built, so Auth was exercised through a stand-in with the
   same HTTP shape. Expect to report small differences the first time you run it against your real project,
   especially **Realtime** (never run live). If live updates don't arrive, see §9; the 15-second polling covers it.
-* The mobile app has not been run on a physical device or emulator, only type-checked, linted and tested in Jest.
+* The mobile app has not been run on a physical device or emulator, only type-checked, tested in Jest, bundled for Android, and rendered in a browser through react-native-web (so the live camera in particular is untested).
 * Live updates trigger a refetch; they don't patch the screen in place. Fine at campus scale.
 * **Scanned or photographed statements** can't be read automatically (no OCR): they go to a person. PDF text extraction uses `unpdf`; statement layouts vary
   between institutions, so test the parser with a real statement from yours (`backend/src/statementParser.js`, tests in `backend/test/unit`) and extend the labels if needed.
-* The mobile card shows its verification code but not a QR image yet (the web card has the QR).
 * Ticket **file attachments** and push notifications are not implemented.
 * No password-reset-by-email flow yet (an admin can reset a password in *Authentication ▸ Users*;
   `change-password` works for signed-in users).
@@ -502,11 +513,11 @@ web/src/
   features/    auth, tickets, exam (student + staff), slots, templates (Monaco editor)
   test/        24 tests
 mobile/src/
-  app/         Expo Router routes: (auth), (student) tabs, (staff) tabs, role-protected
-  screens/     Auth, Tickets, Exam, Staff, Profile screens
-  components/  UI kit, list screen, form helpers
+  app/         Expo Router routes: (auth), and one (app) group with one frame and per-screen role guards
+  screens/     Auth, Tickets, Exam, Staff, Admin (periods, slots), Scan, Units, Profile screens
+  components/  Shell (top bar + menu), UI kit, list screen, form helpers, camera scanner, units checklist
   lib/         API client, supabase client (keychain session), realtime hook, types, formatters
-  context/     auth session   theme/  dark+light tokens   __tests__/  48 tests
+  context/     auth session   theme/  dark+light tokens (same values as the web)   __tests__/  73 tests
 mobile/scripts/check-api.mjs     contract check against a running backend
 scripts/init-env.mjs             npm run env:init
 ```

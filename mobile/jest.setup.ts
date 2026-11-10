@@ -11,6 +11,21 @@ jest.mock('@/lib/storage', () => ({
 
 jest.mock('react-native-safe-area-context', () => require('react-native-safe-area-context/jest/mock').default);
 
+// The camera does not exist in Jest. Tests drive it through `__camera`: set the permission, or call onScanned({ data }) like a QR read.
+jest.mock('expo-camera', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  const __camera: { onScanned: unknown; permission: unknown; ask: unknown } = { onScanned: null, permission: { granted: true, canAskAgain: true }, ask: jest.fn() };
+  return {
+    __camera,
+    CameraView: (props: { onBarcodeScanned?: unknown }) => {
+      __camera.onScanned = props.onBarcodeScanned ?? null;
+      return React.createElement(View, { testID: 'camera' });
+    },
+    useCameraPermissions: () => [__camera.permission, __camera.ask],
+  };
+});
+
 type MockListener = (event: string, session: unknown) => void;
 
 // Fake Supabase client: tests decide whether a saved session exists (signedInAs) and whether a password is accepted.
@@ -70,3 +85,9 @@ beforeEach(() => {
 
 // Icon fonts are binary assets that Jest can't load; render a placeholder instead.
 jest.mock('@expo/vector-icons/Ionicons', () => 'Ionicons');
+
+// A cold start (fresh checkout, CI, --no-cache) compiles every screen the first time a test visits it, which can take longer
+// than the default 1 s that findBy*/waitFor wait. Give the first run room; warm runs are unaffected because they finish sooner.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+require('@testing-library/react-native').configure({ asyncUtilTimeout: 6000 });
+jest.setTimeout(30000);

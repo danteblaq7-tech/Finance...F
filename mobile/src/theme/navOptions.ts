@@ -12,12 +12,5 @@ export function useNavOptions() {
       headerShadowVisible: false,
       contentStyle: { backgroundColor: colors.bg_primary },
     },
-    tabs: {
-      headerShown: false,
-      tabBarStyle: { backgroundColor: colors.bg_nav, borderTopColor: colors.nav_border },
-      tabBarActiveTintColor: colors.nav_text_active,
-      tabBarInactiveTintColor: colors.nav_text,
-      tabBarLabelStyle: { fontFamily: FONTS.button, fontSize: 9 },
-    },
   } as const;
 }

@@ -184,3 +184,59 @@ export interface MyUnit {
   block_reason: string | null;
   signed_at: string | null;
 }
+
+// ── Exam-hall sign-in (same shapes as the web app) ───────────
+export interface UnitPeriod { id: string; title: string; academic_year: string; semester: string; exam_start_date: string; exam_end_date: string }
+export interface ExamUnit {
+  id: string;
+  exam_period_id: string;
+  unit_code: string;
+  unit_name: string;
+  exam_date: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  venue: string | null;
+  registered: number;
+  signed: number;
+  lecturers: { id: string; name: string; email: string }[];
+}
+export interface UnitRegisterRow {
+  id: string;
+  student_id: string;
+  student_name: string;
+  allowed: boolean;
+  block_reason: string | null;
+  signed_at: string | null;
+  signed_by_name: string | null;
+  has_card: boolean;
+}
+/** One of a scanned student's units. */
+export interface CardUnit {
+  id: string;
+  unit_code: string;
+  unit_name: string;
+  exam_date: string | null;
+  start_time: string | null;
+  venue: string | null;
+  allowed: boolean;
+  block_reason: string | null;
+  signed_at: string | null;
+  signed_by_name: string | null;
+  can_sign: boolean;
+}
+export type CardState = 'valid' | 'provisional' | 'revoked' | 'expired' | 'not_found';
+export interface ScannedStudent { name: string; student_id: string; course: string | null; year_of_study: string | null }
+export interface CardLookup { state: CardState; valid: boolean; message?: string; student?: ScannedStudent; period?: { id: string; title: string }; units?: CardUnit[] }
+export type SignResultCode = 'signed' | 'already_signed' | 'not_registered' | 'barred' | 'not_your_unit' | 'card_invalid' | 'wrong_day' | 'wrong_period';
+export interface SignResult {
+  ok: boolean;
+  result: SignResultCode;
+  message: string;
+  state?: CardState;
+  provisional?: boolean;
+  student?: ScannedStudent;
+  unit?: { id: string; unit_code: string; unit_name: string };
+  units: CardUnit[];
+  signed_at?: string;
+  signed_by_name?: string;
+}

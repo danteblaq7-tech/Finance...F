@@ -21,6 +21,7 @@ function fakeApi(opts: { me?: unknown }) {
     else if (path.startsWith('/exam-periods')) body = { periods: [] };
     else if (path.startsWith('/fee-records')) body = { feeRecords: [] };
     else if (path.startsWith('/slots')) body = { dates: [], slots: [] };
+    else if (path.startsWith('/exam-units')) body = { period: null, units: [] };
     return { ok: status < 400, status, json: async () => body } as Response;
   }) as unknown as typeof fetch;
 }
@@ -54,12 +55,12 @@ describe('role-based routing (real src/app routes)', () => {
     pathMatcher().toHavePathname('/queue');
   });
 
-  it('sends a lecturer to their own screen, never the finance staff screens', async () => {
+  it('sends a lecturer to the card scanner, never the finance staff screens', async () => {
     __fake.session = { access_token: 'jwt-lecturer', user: { id: 'u3' } };
     fakeApi({ me: lecturer });
     await mountApp();
-    expect(await screen.findByText(/Scanning exam cards/)).toBeTruthy();
-    pathMatcher().toHavePathname('/lecturer');
+    expect(await screen.findByText('Scan exam cards')).toBeTruthy();
+    pathMatcher().toHavePathname('/scan');
     await act(async () => { router.navigate('/queue'); });
     await waitFor(() => pathMatcher().not.toHavePathname('/queue'));
     expect(screen.queryByText('Ticket Queue')).toBeNull();
