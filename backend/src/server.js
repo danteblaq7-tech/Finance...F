@@ -71,8 +71,8 @@ try {
   console.warn(`! Could not prepare the '${config.statementBucket}' storage bucket (${e.message}). Fee-statement uploads will fail until it exists.`);
 }
 
-const server = createApp().listen(config.port, () => {
-  console.log(`✔ Finesse API running on http://localhost:${config.port}  (${config.nodeEnv})`);
+const server = createApp().listen(config.port, '0.0.0.0', () => {
+  console.log(`✔ Finesse API listening on 0.0.0.0:${config.port}  (${config.nodeEnv})`);
   console.log(`  database: ${target.dbHost}   auth: ${target.supabaseHost}   fee statements: ${config.feeStatementMode} mode`);
   if (config.isProd && config.corsOrigins.some((o) => /localhost|127\.0\.0\.1/.test(o))) console.warn('! CORS_ORIGIN still lists a localhost address in production.');
 });

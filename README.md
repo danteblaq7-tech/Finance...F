@@ -118,12 +118,43 @@ npm run dev            # API on :4000 + web app on :5173
 You should see:
 
 ```
-[api] ✔ Finesse API running on http://localhost:4000
+[api] ✔ Finesse API listening on 0.0.0.0:4000
 [api]   database: aws-0-….pooler.supabase.com   auth: abcdefghijkl.supabase.co
 [web]   ➜  Local:   http://localhost:5173/
 ```
 
 Open **http://localhost:5173** and sign in with a demo account (§4). Stuck? See §9.
+
+### Test the web app from a phone on your Wi-Fi
+
+The Vite frontend (`5173`) and Express API (`4000`) listen on all IPv4 interfaces during local development.
+On the laptop, run both services from the project root:
+
+```powershell
+npm run dev
+```
+
+Or, in separate terminals, run `npm run dev --prefix backend` and `npm run dev --prefix web`.
+Find the laptop's Wi-Fi IPv4 address with `ipconfig` (under **Wireless LAN adapter Wi-Fi**), then open
+`http://<laptop-LAN-IPv4>:5173` on the phone while it is on the same Wi-Fi network. Vite also prints its
+**Network** URL on startup. The API listens at `http://<laptop-LAN-IPv4>:4000`; its health check is
+`http://<laptop-LAN-IPv4>:4000/api/health`.
+
+The web app sends API requests to the same-origin `/api` path. Keep `VITE_API_URL` empty in `web/.env`:
+Vite forwards those requests to `127.0.0.1:4000` on the laptop, so the phone never tries to contact its own
+localhost and the web API traffic does not require cross-origin access. `VITE_API_URL` is only needed when
+the frontend and API are hosted separately (for example, in production).
+
+`backend/.env` uses the comma-separated `CORS_ORIGIN` allowlist. Add the exact frontend origin
+`http://<laptop-LAN-IPv4>:5173` alongside existing origins when a browser connects directly to the API;
+do not use `*`. The Vite proxy setup itself is same-origin and does not rely on CORS. Restart the backend
+after changing `CORS_ORIGIN`. Auth and Realtime connect directly to the configured Supabase project over
+the network; there is no local WebSocket server to expose.
+
+On Windows, allow Node.js (or TCP ports **5173** and **4000**) through Windows Defender Firewall on the
+**Private** network profile if prompted. Do not expose these development ports on Public networks. The QR
+scanner's browser camera may require HTTPS; plain HTTP on a phone's LAN address is not generally a secure
+context, though the rest of the app can be tested.
 
 ### What is safe to commit, and what is not
 

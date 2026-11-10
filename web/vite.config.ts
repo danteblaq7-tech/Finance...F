@@ -7,9 +7,11 @@ export default defineConfig({
   plugins: [react()],
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   server: {
+    host: '0.0.0.0',
     port: 5173,
-    // In dev, /api/* is forwarded to the Express backend, so no CORS or URL config is needed.
-    proxy: { '/api': { target: 'http://localhost:4000', changeOrigin: true } },
+    strictPort: true,
+    // Keep API calls same-origin in the browser; Vite forwards them from the laptop to Express.
+    proxy: { '/api': { target: 'http://127.0.0.1:4000', changeOrigin: true } },
   },
   build: { sourcemap: true },
   test: { globals: true, environment: 'jsdom', setupFiles: ['./src/test/setup.ts'], css: false },
