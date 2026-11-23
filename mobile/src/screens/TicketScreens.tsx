@@ -112,6 +112,7 @@ function BookingPanel({ ticket }: { ticket: Ticket }) {
   const { colors } = useTheme();
   const qc = useQueryClient();
   const [date, setDate] = useState<string | null>(null);
+  const [changing, setChanging] = useState(false);
   const dates = useQuery({ queryKey: ['slot-dates'], queryFn: () => api.get<{ dates: SlotDate[] }>('/slots/dates?days=14'), refetchInterval: REFRESH_MS });
   const active = date ?? dates.data?.dates.find((d) => d.free > 0)?.date ?? null;
   const slots = useQuery({
@@ -119,16 +120,27 @@ function BookingPanel({ ticket }: { ticket: Ticket }) {
     queryFn: () => api.get<{ slots: Slot[] }>(`/slots?date=${active}`),
   });
   const refresh = () => invalidate(qc, ['ticket', 'tickets', 'slots', 'slot-dates']);
-  const book = useMutation({ mutationFn: (slotId: string) => api.post(`/tickets/${ticket.id}/book`, { slotId }), onSuccess: refresh, onError: refresh });
+  const book = useMutation({
+    mutationFn: (slotId: string) => changing
+      ? api.patch(`/tickets/${ticket.id}/booking`, { slotId })
+      : api.post(`/tickets/${ticket.id}/book`, { slotId }),
+    onSuccess: () => { setChanging(false); refresh(); },
+    onError: refresh,
+  });
   const cancel = useMutation({ mutationFn: () => api.del(`/tickets/${ticket.id}/booking`), onSuccess: refresh });
 
-  if (ticket.appointment_slot) {
+  if (ticket.appointment_slot && !changing) {
     return (
       <Card>
         <AppText variant="label">Appointment</AppText>
         <AppText variant="heading" style={{ marginVertical: 6 }}>{formatDateTime(ticket.appointment_slot)}</AppText>
         <ErrorNote error={cancel.error} />
-        {['pending', 'in_review'].includes(ticket.status) ? <Button title="Cancel appointment" variant="secondary" loading={cancel.isPending} onPress={() => cancel.mutate()} /> : null}
+        {['pending', 'in_review'].includes(ticket.status) ? (
+          <>
+            <Button title="Change appointment" variant="secondary" onPress={() => setChanging(true)} />
+            <Button title="Cancel appointment" variant="secondary" loading={cancel.isPending} onPress={() => cancel.mutate()} />
+          </>
+        ) : null}
       </Card>
     );
   }
@@ -136,7 +148,10 @@ function BookingPanel({ ticket }: { ticket: Ticket }) {
 
   return (
     <Card>
-      <AppText variant="label" style={{ marginBottom: SPACING.sm }}>Book an in-person appointment (optional)</AppText>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACING.sm, marginBottom: SPACING.sm }}>
+        <AppText variant="label">{changing ? 'Choose a new appointment time' : 'Book an in-person appointment (optional)'}</AppText>
+        {changing ? <Button title="Keep current" variant="secondary" onPress={() => setChanging(false)} /> : null}
+      </View>
       {dates.isLoading ? <Spinner /> : !dates.data?.dates.length ? (
         <AppText variant="muted">No appointment slots are available yet.</AppText>
       ) : (
@@ -156,7 +171,7 @@ function BookingPanel({ ticket }: { ticket: Ticket }) {
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: SPACING.sm }}>
             {slots.data?.slots.map((s) => (
               <Pressable key={s.id} disabled={s.is_booked || book.isPending} accessibilityRole="button" accessibilityLabel={`Book ${formatTime(s.start_time)}`}
-                onPress={() => Alert.alert('Book appointment', `${formatDay(s.start_time)} at ${formatTime(s.start_time)}?`, [{ text: 'Cancel', style: 'cancel' }, { text: 'Book', onPress: () => book.mutate(s.id) }])}
+                onPress={() => Alert.alert(changing ? 'Change appointment' : 'Book appointment', `${formatDay(s.start_time)} at ${formatTime(s.start_time)}?`, [{ text: 'Cancel', style: 'cancel' }, { text: changing ? 'Change' : 'Book', onPress: () => book.mutate(s.id) }])}
                 style={{ borderWidth: 1, borderColor: colors.border, borderRadius: RADIUS.sm, paddingHorizontal: 10, paddingVertical: 8, opacity: s.is_booked ? 0.3 : 1, backgroundColor: colors.bg_tertiary }}>
                 <Text style={{ color: colors.text_primary, fontFamily: FONTS.button, fontSize: 11, textDecorationLine: s.is_booked ? 'line-through' : 'none' }}>{formatTime(s.start_time)}</Text>
               </Pressable>
@@ -174,22 +189,46 @@ function BookingPanel({ ticket }: { ticket: Ticket }) {
 function StaffControls({ ticket }: { ticket: Ticket }) {
   const qc = useQueryClient();
   const [status, setStatus] = useState<TicketStatus>(ticket.status);
+  const [issueType, setIssueType] = useState(ticket.issue_type);
   const [priority, setPriority] = useState<TicketPriority>(ticket.priority);
-  const [notes, setNotes] = useState(ticket.staff_notes);
+  const [response, setResponse] = useState('');
   const save = useMutation({
-    mutationFn: () => api.patch(`/tickets/${ticket.id}`, { status, priority, staffNotes: notes }),
-    onSuccess: () => invalidate(qc, ['ticket', 'tickets']),
+    mutationFn: () => api.patch(`/tickets/${ticket.id}`, { issueType, status, priority, ...(response.trim() ? { response: response.trim() } : {}) }),
+    onSuccess: () => {
+      setResponse('');
+      invalidate(qc, ['ticket', 'tickets']);
+    },
   });
   return (
     <Card>
       <AppText variant="label" style={{ marginBottom: SPACING.sm }}>Staff controls</AppText>
+      {ticket.classification ? (
+        <View style={{ marginBottom: SPACING.md }}>
+          <AppText variant="bold">Classifier suggestion · {ticket.classification.provider_name}</AppText>
+          <AppText variant="muted" style={{ marginTop: 4 }}>
+            {ISSUE_LABELS[ticket.classification.suggested_category] ?? ticket.classification.suggested_category} · {ticket.classification.suggested_priority}
+          </AppText>
+          <AppText variant="muted" style={{ marginTop: 4 }}>{ticket.classification.rationale}</AppText>
+          <AppText variant="muted" style={{ fontSize: 11 }}>{formatDateTime(ticket.classification.timestamp)}</AppText>
+          <Button title="Use suggestion" variant="secondary" onPress={() => {
+            setIssueType(ticket.classification!.suggested_category);
+            setPriority(ticket.classification!.suggested_priority);
+          }} />
+        </View>
+      ) : null}
+      <Field label="Issue category">
+        <ChipGroup options={ISSUE_TYPES.map((type) => ({ label: type.label, value: type.value as string }))} value={issueType} onChange={setIssueType} />
+      </Field>
       <Field label="Status">
-        <ChipGroup<TicketStatus> options={(Object.keys(TICKET_STATUS) as TicketStatus[]).map((v) => ({ label: TICKET_STATUS[v].label, value: v }))} value={status} onChange={setStatus} />
+        <ChipGroup<TicketStatus> options={(Object.keys(TICKET_STATUS) as TicketStatus[]).map((v) => ({ label: TICKET_STATUS[v].label, value: v }))} value={status} onChange={(next) => {
+          setStatus(next);
+          if (next === 'cancelled') setResponse('');
+        }} />
       </Field>
       <Field label="Priority">
         <ChipGroup<TicketPriority> options={[{ label: 'Low', value: 'low' }, { label: 'Medium', value: 'medium' }, { label: 'High', value: 'high' }]} value={priority} onChange={setPriority} />
       </Field>
-      <TextField label="Notes to student" hint="Shown to the student on their ticket." value={notes} onChangeText={setNotes} multiline />
+      <TextField label="New Finance Office response" hint="Added to the ticket history; previous responses are kept." value={response} onChangeText={setResponse} multiline />
       <ErrorNote error={save.error} />
       <Button title={save.isSuccess ? 'Saved ✓' : 'Save changes'} loading={save.isPending} onPress={() => save.mutate()} />
     </Card>
@@ -225,10 +264,19 @@ export function TicketDetailScreen() {
           <AppText variant="muted" style={{ marginTop: 4 }}>{t.student_name}{t.student_number ? ` · ${t.student_number}` : ''} · {formatDateTime(t.created_at)}</AppText>
         </View>
         <Card><AppText variant="label" style={{ marginBottom: 6 }}>Description</AppText><AppText selectable>{t.description}</AppText></Card>
-        {!staff && t.staff_notes ? (
-          <Card><AppText variant="label" style={{ marginBottom: 6 }}>Response from the finance office</AppText><AppText selectable>{t.staff_notes}</AppText></Card>
+        {!!t.responses?.length ? (
+          <View accessibilityLabel="Finance Office response history" style={{ gap: SPACING.sm }}>
+            <AppText variant="label">Finance Office response history</AppText>
+            {t.responses.map((r) => (
+              <Card key={r.id}>
+                <AppText variant="label">Finance Office</AppText>
+                <AppText variant="muted" style={{ marginTop: 4, fontSize: 11 }}>{formatDateTime(r.created_at)}</AppText>
+                <AppText selectable style={{ marginTop: 8 }}>{r.body}</AppText>
+              </Card>
+            ))}
+          </View>
         ) : null}
-        {staff ? <StaffControls key={t.updated_at} ticket={t} /> : <BookingPanel ticket={t} />}
+        {staff && t.status !== 'cancelled' ? <StaffControls key={t.updated_at} ticket={t} /> : !staff ? <BookingPanel ticket={t} /> : null}
         {staff && t.appointment_slot ? <Card><AppText variant="label">Appointment</AppText><AppText variant="bold" style={{ marginTop: 4 }}>{formatDateTime(t.appointment_slot)}</AppText></Card> : null}
         {!staff && ['pending', 'in_review'].includes(t.status) ? (
           <>

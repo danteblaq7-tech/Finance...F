@@ -4,8 +4,9 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { View } from 'react-native';
 import { z } from 'zod';
-import { FormTextField } from '@/components/forms';
-import { AppText, Badge, Button, Card, Empty, ErrorNote, Header, Screen, Spinner, TextField } from '@/components/ui';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { FormDateField, FormSelectField, FormTextField } from '@/components/forms';
+import { AppText, Badge, Button, Card, Empty, ErrorNote, Field, Header, Screen, Spinner } from '@/components/ui';
 import { api } from '@/lib/api';
 import { formatDate, formatTime, toDateString } from '@/lib/format';
 import type { ExamPeriod, Slot } from '@/lib/types';
@@ -14,11 +15,22 @@ import { RADIUS, SPACING } from '@/theme/theme';
 
 // Staff screens the web app has and mobile did not: Exam Periods and Appointment Slots (same rules as the web).
 
-const date = z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use the format 2026-11-23');
+const date = z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use the format YYYY-MM-DD').refine((value) => {
+  const [year, month, day] = value.split('-').map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
+}, 'Enter a real calendar date.');
+const academicYear = z.string().trim().regex(/^\d{4}\/\d{4}$/, 'Use the format YYYY/YYYY').refine((value) => {
+  const [start, end] = value.split('/').map(Number);
+  return end === start + 1;
+}, 'The end year must be one year after the start year.');
+const currentYear = new Date().getFullYear();
+const academicYears = Array.from({ length: 11 }, (_, i) => `${currentYear - 5 + i}/${currentYear - 4 + i}`);
+const currentAcademicYear = `${currentYear}/${currentYear + 1}`;
 const periodSchema = z.object({
-  title: z.string().trim().min(3, 'Required'),
-  academicYear: z.string().trim().regex(/^\d{4}\/\d{4}$/, 'Use the format 2026/2027'),
-  semester: z.string().trim().min(1, 'Required'),
+  title: z.string().trim().min(3, 'Required').max(150),
+  academicYear,
+  semester: z.string().trim().min(1, 'Required').max(20),
   applicationOpen: date,
   applicationClose: date,
   examStartDate: date,
@@ -27,7 +39,7 @@ const periodSchema = z.object({
 }).refine((p) => p.applicationClose >= p.applicationOpen, { message: 'Must be on/after the open date', path: ['applicationClose'] })
   .refine((p) => p.examEndDate >= p.examStartDate, { message: 'Must be on/after the start date', path: ['examEndDate'] });
 type PeriodValues = z.infer<typeof periodSchema>;
-const EMPTY: PeriodValues = { title: '', academicYear: '', semester: '', applicationOpen: '', applicationClose: '', examStartDate: '', examEndDate: '', minPaymentPercent: '100' };
+const EMPTY: PeriodValues = { title: '', academicYear: currentAcademicYear, semester: '', applicationOpen: '', applicationClose: '', examStartDate: '', examEndDate: '', minPaymentPercent: '100' };
 
 export function PeriodsScreen() {
   const qc = useQueryClient();
@@ -47,12 +59,12 @@ export function PeriodsScreen() {
       <Card style={{ marginBottom: SPACING.lg }}>
         <AppText variant="label" style={{ marginBottom: SPACING.md }}>New exam period</AppText>
         <FormTextField control={control} name="title" label="Title" />
-        <FormTextField control={control} name="academicYear" label="Academic year" placeholder="2026/2027" autoCapitalize="none" />
+        <FormSelectField control={control} name="academicYear" label="Academic year" options={academicYears.map((year) => ({ label: year, value: year }))} />
         <FormTextField control={control} name="semester" label="Semester" placeholder="Semester 1" />
-        <FormTextField control={control} name="applicationOpen" label="Applications open" placeholder="YYYY-MM-DD" autoCapitalize="none" />
-        <FormTextField control={control} name="applicationClose" label="Applications close" placeholder="YYYY-MM-DD" autoCapitalize="none" />
-        <FormTextField control={control} name="examStartDate" label="Exams start" placeholder="YYYY-MM-DD" autoCapitalize="none" />
-        <FormTextField control={control} name="examEndDate" label="Exams end" placeholder="YYYY-MM-DD" autoCapitalize="none" />
+        <FormDateField control={control} name="applicationOpen" label="Applications open" />
+        <FormDateField control={control} name="applicationClose" label="Applications close" />
+        <FormDateField control={control} name="examStartDate" label="Exams start" />
+        <FormDateField control={control} name="examEndDate" label="Exams end" />
         <FormTextField control={control} name="minPaymentPercent" label="Minimum fees paid (%)" hint="100 = fully cleared. 70 = students who paid at least 70% are cleared." keyboardType="number-pad" />
         <ErrorNote error={create.error} />
         <Button title="Create period" loading={create.isPending} onPress={() => void handleSubmit((v) => create.mutate(v))()} />
@@ -82,7 +94,8 @@ export function SlotsScreen() {
   const { colors } = useTheme();
   const qc = useQueryClient();
   const [day, setDay] = useState(() => toDateString(new Date(Date.now() + 86_400_000)));
-  const valid = /^\d{4}-\d{2}-\d{2}$/.test(day);
+  const [showPicker, setShowPicker] = useState(false);
+  const valid = date.safeParse(day).success;
   const q = useQuery({ queryKey: ['slots', day], enabled: valid, queryFn: () => api.get<{ slots: Slot[] }>(`/slots?date=${day}`), refetchInterval: 15_000 });
   const gen = useMutation({
     mutationFn: () => api.post('/slots/generate', { date: day }),
@@ -93,10 +106,16 @@ export function SlotsScreen() {
       <Header title="Appointment Slots" subtitle="30-minute slots, 08:00–17:00. Generating a date that already has slots does nothing." />
       <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end' }}>
         <View style={{ flex: 1 }}>
-          <TextField label="Date" value={day} onChangeText={setDay} placeholder="YYYY-MM-DD" autoCapitalize="none" error={valid ? undefined : 'Use the format 2026-11-23'} />
+          <Field label="Date">
+            <Button title={day} variant="secondary" onPress={() => setShowPicker(true)} />
+          </Field>
         </View>
         <Button title="Generate slots" loading={gen.isPending} disabled={!valid} style={{ marginBottom: valid ? SPACING.md : 40 }} onPress={() => gen.mutate()} />
       </View>
+      {showPicker ? <DateTimePicker value={new Date(`${day}T12:00:00`)} mode="date" onChange={(event, selected) => {
+        setShowPicker(false);
+        if (event.type === 'set' && selected) setDay(toDateString(selected));
+      }} /> : null}
       <ErrorNote error={gen.error} />
       {!valid ? null : q.isLoading ? <Spinner /> : q.error ? <ErrorNote error={q.error} /> : q.data!.slots.length === 0 ? <Empty>No slots for this date yet.</Empty> : (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>

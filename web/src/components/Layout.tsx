@@ -1,5 +1,5 @@
 import {
-  CalendarClock, ClipboardCheck, ClipboardList, CreditCard, FileSpreadsheet, GraduationCap, LogOut, Mail,
+  CalendarClock, ClipboardCheck, ClipboardList, CreditCard, FileSpreadsheet, GraduationCap, LogOut, Mail, Users,
   Inbox, LayoutDashboard, PlusCircle, ScanLine, type LucideIcon,
 } from 'lucide-react';
 import { NavLink, Outlet } from 'react-router-dom';
@@ -32,9 +32,17 @@ const STAFF_NAV: NavItem[] = [
   { to: '/staff/templates', label: 'Email Templates', icon: Mail },
 ];
 
+const STAFF_MANAGEMENT_NAV: NavItem = { to: '/staff/management', label: 'Staff management', icon: Users };
+
 export function Layout() {
   const { user, logout } = useAuth();
-  const nav = user?.role === 'student' ? STUDENT_NAV : user?.role === 'lecturer' ? LECTURER_NAV : STAFF_NAV;
+  const nav = user?.role === 'student'
+    ? STUDENT_NAV
+    : user?.role === 'lecturer'
+      ? LECTURER_NAV
+      : user?.role === 'admin'
+        ? [...STAFF_NAV, STAFF_MANAGEMENT_NAV]
+        : STAFF_NAV;
 
   // Desktop: the sidebar fills the left edge and stays put; only the content area scrolls.
   // Phone: the sidebar becomes a strip across the top and the page scrolls normally.

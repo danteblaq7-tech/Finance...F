@@ -1,7 +1,15 @@
 // Typed handle on the fake Supabase client that jest.setup.ts installs in place of '@/lib/supabase'.
 export interface FakeSupabase {
   /** The saved session the app finds on start (null = signed out). */
-  session: { access_token: string; user: { id: string } } | null;
+  session: {
+    access_token: string;
+    user: {
+      id: string;
+      email?: string;
+      user_metadata?: { name?: string };
+      app_metadata?: { role?: string; must_change_password?: boolean };
+    };
+  } | null;
   signIn: jest.Mock;
   signOut: jest.Mock;
 }

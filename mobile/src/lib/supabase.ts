@@ -6,10 +6,22 @@ import { getItem, removeItem, setItem } from './storage';
 const url = process.env.EXPO_PUBLIC_SUPABASE_URL?.trim();
 const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY?.trim();
 
-const isPlaceholder = (v: string) => /your[-_ ]?(project|anon)|paste[-_ ]/i.test(v);
+const isPlaceholder = (v: string | undefined) =>
+  !v || /your[-_ ]?(project|anon)|paste[-_ ]|\[YOUR/i.test(v);
 
-/** False until mobile/.env has real values; the root layout shows a setup screen instead of a broken app. */
-export const supabaseConfigured = !!url && !!anonKey && !isPlaceholder(url) && !isPlaceholder(anonKey);
+if (isPlaceholder(url)) {
+  throw new Error('EXPO_PUBLIC_SUPABASE_URL is required at build time. Set it to the Supabase project URL.');
+}
+if (isPlaceholder(anonKey)) {
+  throw new Error('EXPO_PUBLIC_SUPABASE_ANON_KEY is required at build time. Set it to the Supabase anon/publishable key.');
+}
+
+try {
+  const parsed = new URL(url!);
+  if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error();
+} catch {
+  throw new Error('EXPO_PUBLIC_SUPABASE_URL must be a valid HTTP(S) URL.');
+}
 
 /**
  * Keeps native Supabase sessions in SecureStore and web sessions in localStorage.
@@ -44,10 +56,12 @@ export const secureStorage = {
 // The anon/publishable key is meant to be public: the database's Row Level Security limits what it can read.
 // Never put the service_role / secret key in the mobile app.
 export const supabase = createClient(
-  supabaseConfigured ? url! : 'http://localhost:54321',
-  supabaseConfigured ? anonKey! : 'not-configured',
+  url!,
+  anonKey!,
   { auth: { storage: secureStorage, persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } },
 );
+
+export const supabaseConfigured = true;
 
 // React Native has no "tab visible" signal, so tell Supabase when to refresh tokens: only while the app is in the foreground.
 if (Platform.OS !== 'web') {

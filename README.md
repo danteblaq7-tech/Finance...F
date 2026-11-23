@@ -7,7 +7,8 @@ emails students receive. One **shared Supabase project** (database + sign-in + l
 
 ```
 finesse/
-├── database/supabase/      ← schema.sql, seed_demo.sql, reset.sql   (the database, as code)
+├── supabase/migrations/    ← ordered Supabase CLI schema migrations
+├── database/supabase/      ← legacy schema reference, local demo seed and reset SQL
 ├── database/legacy-mysql/  ← the old MySQL schema, kept for reference only
 ├── backend/                ← Node.js + Express REST API            → http://localhost:4000
 ├── web/                    ← React 18 + Vite + TypeScript         → http://localhost:5173
@@ -42,8 +43,10 @@ ticket raised on one laptop shows up on every other laptop and phone within a se
 |---|---|---|
 | Node.js | 18 or newer (20 LTS recommended) | `node -v` |
 | A free Supabase account | — | https://supabase.com |
+| Supabase CLI | Current | `supabase --version` |
 
 MySQL is **no longer needed**.
+On Windows, install the CLI with Scoop (`scoop bucket add supabase https://github.com/supabase/scoop-bucket.git`, then `scoop install supabase`).
 
 ## 2. Project owner: one-time Supabase setup
 
@@ -72,18 +75,72 @@ Only **one** person on the team does this section. Everyone else skips to §3.
    npm run env:init       # creates backend/.env, web/.env, mobile/.env from the templates
    ```
 
-   Open each `.env` and paste in the values above.
+   Open each `.env` and fill in the values above. Mobile also requires `EXPO_PUBLIC_API_URL`; set it to the API's reachable URL (for local physical-device testing use your computer's LAN IP and port 4000).
 
-4. **Build the database** (tables, security rules, realtime, demo users and demo data):
+   **Use staging without touching development `.env` files (PowerShell):** copy `backend/.env.staging.example`,
+   `web/.env.staging.example` and `mobile/.env.staging.example` to their corresponding `.env.staging` names,
+   then replace the service-role key, anon key and database URI with values from Supabase project
+   `jqmxcnilrwgirsdufzjn`. These `.env.staging` files are git-ignored. Run each command in its own terminal:
 
-   ```bash
-   npm run setup          # installs backend/ and web/ dependencies
-   npm run db:setup
+   ```powershell
+   # Terminal 1: API connects to the staging database/Auth project.
+   Set-Location .\backend
+   $env:DOTENV_CONFIG_PATH = '.env.staging'
+   npm run dev
+
+   # Terminal 2: Vite loads web/.env.staging.
+   Set-Location .\web
+   npm run dev -- --mode staging
+
+   # Terminal 3: Expo reads staging values into this process; the example API URL is Android-emulator-only.
+   Set-Location .\mobile
+   Get-Content .\.env.staging | ForEach-Object {
+     if ($_ -match '^\s*([^#=]+)=(.*)$') {
+       [Environment]::SetEnvironmentVariable($matches[1].Trim(), $matches[2].Trim(), 'Process')
+     }
+   }
+   npx expo start
    ```
 
-   It's safe to run again: it never deletes data. (`npm run db:schema` = structure only,
-   `npm run db:seed` = demo logins + data only. Prefer the dashboard? Paste
-   `database/supabase/schema.sql` into *SQL Editor ▸ New query ▸ Run*, then run `npm run db:seed`.)
+   For a physical phone, replace the mobile API URL with a development URL reachable from that phone. Do not use
+   these local HTTP addresses in an EAS production build; production API URLs must be HTTPS. Ensure staging
+   migrations are applied before starting the API.
+
+4. **Apply the database migrations**:
+
+   ```bash
+   supabase link --project-ref <project-ref>
+   npm run db:migrate
+   ```
+
+   `db:migrate` applies pending files in `supabase/migrations/`; it does not seed data. New blank projects get the schema from the initial migration. Do not paste `schema.sql` into the dashboard or run demo seed data against a hosted project. The ticket-response migration backfills each existing non-empty staff note; legacy rows have no stored author and use the ticket's `updated_at` as the closest available timestamp. The student registry/normalization migration is currently intended for **staging only**; apply it to staging, not production, until separately approved. It fails clearly if existing profile numbers collide after normalization; resolve those duplicates before retrying.
+
+   **First admin (one-time):** after all migrations are applied, use the staging-specific script below. It reads `backend/.env.staging` (overriding inherited process values), refuses unless both Supabase URL and database URL identify staging project `jqmxcnilrwgirsdufzjn`, then checks required migrations before any Auth changes. It refuses if any admin already exists, and can recover an existing Auth user by creating or promoting its profile. It generates a temporary password in memory, displays it once after success, and requires a password change at first sign-in. It does not write the password to a file, environment variable, database, or application log. Protect the terminal output and do not enable session transcription while running it. While the profile's `must_change_password` flag is set, the backend rejects authenticated requests other than `POST /api/auth/change-password`; Supabase Auth app metadata is used only to route the UI.
+
+   From the repository root in PowerShell, fill in `backend/.env.staging` once from its example, then run:
+
+   ```powershell
+   $env:BOOTSTRAP_ADMIN_NAME = 'First Admin Name'
+   $env:BOOTSTRAP_ADMIN_EMAIL = 'admin@example.com'
+   npm run bootstrap:admin:staging
+   Remove-Item Env:BOOTSTRAP_ADMIN_NAME, Env:BOOTSTRAP_ADMIN_EMAIL
+   ```
+
+   The command never reads or changes `backend/.env`. The same script can be run from `backend/` with `npm run bootstrap:admin:staging`. The temporary password is printed once to the terminal after the transaction commits; keep it private and deliver it to the admin securely.
+
+   **Student signup:** student numbers are normalized (trimmed, uppercased, whitespace/slashes/dashes collapsed to `/`) before validation and storage. Default format is `^[A-Z]{2,6}/\d{3,4}/\d{2}$`, for example `COM/072/23` or `COM/1234/23`; override it with `STUDENT_ID_PATTERN` if campus formats change. Student email domains are not restricted (students may use Gmail). When `student_registry` contains any rows, signup requires an active exact number in that registry; when it is empty, the API falls back to the pattern and logs a startup warning.
+
+   **Staging registry import:** prepare UTF-8 CSV with a header `student_number,course,active` (`active` optional; defaults true). The importer normalizes numbers, validates the configured pattern, rejects duplicate normalized numbers, and upserts records. It is explicitly restricted to staging project `jqmxcnilrwgirsdufzjn`. Put the CSV in `backend/`, then run:
+
+   ```powershell
+   Set-Location .\backend
+   $env:DOTENV_CONFIG_PATH = '.env.staging'
+   npm run registry:import -- .\student-registry.csv
+   ```
+
+   The command uses the staging `DATABASE_URL` from `backend/.env.staging`; it does not read or modify `backend/.env`.
+
+   For an isolated **local-only demo** instead: run `supabase start`, then `supabase db reset` to apply migrations locally. Point `backend/.env`'s `SUPABASE_URL` and `DATABASE_URL` at the local services (get local keys with `supabase status -o env`), then run `npm run db:seed`. The seed command refuses production mode and any non-local Auth or database URL.
 
 5. **Recommended dashboard hardening** — *Authentication ▸ Sign In / Providers ▸ Email*:
    turn **off "Allow new users to sign up"**. Students still register through the app (the API creates their
@@ -161,7 +218,7 @@ context, though the rest of the app can be tested.
 | File / value | In GitHub? | Why |
 |---|---|---|
 | `*/.env.example` | ✅ yes | Templates with placeholders only |
-| `database/supabase/*.sql` | ✅ yes | The schema is code: teammates review changes like any other file |
+| `supabase/migrations/*.sql` | ✅ yes | Ordered database changes, applied through Supabase CLI |
 | `backend/.env`, `web/.env`, `mobile/.env` | ❌ **never** | Real values; already in `.gitignore` |
 | `SUPABASE_URL`, `anon` / *publishable* key | 🟡 public by design | Shipped inside every browser and phone. They're only safe because of the database security rules (§8). Still, keep them out of the repo so it can't be pointed at the wrong project |
 | `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL` (contains the DB password) | ❌ **secret** | Full access; they bypass every security rule. Backend only |
@@ -170,9 +227,9 @@ context, though the rest of the app can be tested.
 dashboard (*Project Settings ▸ API* / *▸ Database ▸ Reset password*), update everyone's `.env`, and only then
 clean up the history.
 
-## 4. Sign in (demo accounts)
+## 4. Local demo accounts only
 
-Every demo account has the password **`Finesse@2026`** (created by `npm run db:seed`).
+The demo accounts and shared password below exist only in the local Supabase CLI project. `npm run db:seed` refuses production mode and hosted Auth/database URLs; never copy this data to a hosted project.
 
 | Role | Email | What to try |
 |---|---|---|
@@ -187,20 +244,11 @@ Every demo account has the password **`Finesse@2026`** (created by `npm run db:s
 Or click **Create an account** to register a new student. The role is always `student`: it cannot be chosen
 by the browser, the API *or* the sign-up metadata (a database trigger decides it).
 
-⚠ The demo password is public in this README. Change it, or delete the demo users, before real use.
-
-**Making a real staff member.** Create their account (they can register as a student, or you can add them
-under *Authentication ▸ Users*), then in the dashboard's *SQL Editor*:
-
-```sql
-update public.profiles set role = 'staff' where email = 'someone@campus.ac.ke';   -- or 'admin'
-```
-
 ### A 2-minute tour
 
 1. **Student flow:** sign in as Cynthia ▸ *Raise Ticket* ▸ open it ▸ book an appointment slot.
 2. **Staff flow:** in a *second browser* (or a private window) sign in as staff ▸ *Ticket Queue* ▸ open the
-   ticket ▸ change status and add a note. Watch Cynthia's window update by itself.
+   ticket ▸ change status and add a Finance Office response. Watch Cynthia's window update by itself.
 3. **Exam cards:** as staff, *Fee Records* ▸ import a CSV (format below) ▸ as a student with a matching
    student ID, *Exam Card* ▸ **Apply**. The database decides approved/rejected from the fee record.
 4. **Templates:** as staff, *Email Templates* ▸ edit the HTML in the code editor and watch the live preview.
@@ -223,7 +271,7 @@ EGM/027/2024,Amina Hassan,amina@students.finesse.ac.ke,BSc Electrical Engineerin
 
 ## 6. Mobile app (React Native / Expo)
 
-Same API, same demo accounts, same live updates.
+Same API and live updates. Demo accounts are only available when running the local Supabase project.
 
 **You need:** the **Expo Go** app (keep it up to date: this project uses Expo SDK 58) and your phone on the
 **same Wi-Fi** as your computer.
@@ -291,7 +339,7 @@ single source of truth, and Realtime is just the "something changed" bell.
 ## 8. Security model (read this before adding tables)
 
 Supabase publishes every table in the `public` schema over a REST API that **anyone holding the public key can
-call**. What stops them is **Row Level Security (RLS)**, set up in `schema.sql`:
+call**. What stops them is **Row Level Security (RLS)**, set up in the initial migration:
 
 * All tables have RLS **on**. Signed-in users may only **read** what they're entitled to (own tickets / own
   fee records / own applications; staff see all). Nobody can write through the public API: the API does all
@@ -302,26 +350,25 @@ call**. What stops them is **Row Level Security (RLS)**, set up in `schema.sql`:
 * Roles can't be self-assigned: a trigger creates every new profile as `student`.
 
 **When you add a table:** enable RLS (`alter table … enable row level security;`) and add a policy,
-otherwise it is readable and writable by the whole internet. Put the change in `database/supabase/schema.sql`
-(it's written to be re-runnable) and tell the team to run `npm run db:schema` once.
+otherwise it is readable and writable by the whole internet. Add an ordered migration under
+`supabase/migrations/` and apply it with `npm run db:migrate`.
 
 ## 9. Troubleshooting
 
 | You see | Cause / fix |
 |---|---|
-| Web/mobile shows **"Finesse needs its Supabase settings"** | `web/.env` / `mobile/.env` missing or still has placeholders. `npm run env:init`, fill it in, **restart** `npm run dev` (Vite) or `npx expo start -c` (Expo). They only read `.env` at startup. |
+| Web/mobile build reports a missing/placeholder environment variable | Fill the required `VITE_*` / `EXPO_PUBLIC_*` values in the ignored `.env` file and restart the dev server or rebuild. |
 | `✖ Missing SUPABASE_URL …` / `…still has the placeholder text` | `backend/.env` is missing or unfilled. See §3. |
 | `✖ Cannot connect … ENOTFOUND / ENETUNREACH` | You used the *Direct connection* string (IPv6-only). Use the **Session pooler** string. |
 | `password authentication failed` | Wrong DB password. Reset it under *Project Settings ▸ Database*. With the pooler the username is `postgres.<project-ref>`. |
 | `Tenant or user not found` | Wrong pooler host/region, or the username isn't `postgres.<project-ref>`. Re-copy the string from *Connect*. |
 | `DATABASE_URL is not a valid URL` | Special characters in the password. URL-encode them (`@` → `%40`, `#` → `%23`) or reset the password. |
 | Hangs, then timeout | No internet, or the free project is **paused** (idle ~7 days). Restore it in the dashboard. |
-| `✖ …Finesse tables do not exist yet` | The owner hasn't run `npm run db:setup` for this project yet (§2 step 4). |
+| `✖ …Finesse tables do not exist yet` | Apply pending migrations with `npm run db:migrate` (§2 step 4). |
 | `✖ Supabase rejected SUPABASE_SERVICE_ROLE_KEY` | Wrong key, or `SUPABASE_URL` belongs to a different project than the key. |
-| Login says "Incorrect email or password" | Demo password is `Finesse@2026` (capital F, `@`). If the demo users were never created, run `npm run db:seed`. |
-| Login says "Incorrect email or password" for a **demo** account (browser console: `auth/v1/token … 400`) | Either the account does not exist yet (`lecturer@finesse.ac.ke` was added in a later version: run `npm run db:schema` then `npm run db:seed`), or its password was changed. Run `npm run db:passwords --prefix backend` (from the project root) to put every existing demo account back on `Finesse@2026`. Check *Supabase ▸ Authentication ▸ Users* to see which accounts exist. |
-| An API call returns **503 "The database is out of date for this feature"** (older builds: **500** with `relation "unit_registrations" does not exist` in the `[api]` terminal) | A newer version added tables and `npm run db:schema` has not been run on this Supabase project yet. The project owner runs it once (safe to re-run, never deletes data). |
-| `✖ The database has not been updated for the latest version yet` when seeding | Same fix: `npm run db:schema` first, then `npm run db:seed`. |
+| Local demo login says "Incorrect email or password" | Demo accounts exist only in a local Supabase CLI project. To reset their local password, run `npm run db:passwords --prefix backend` with both backend URLs pointing to localhost. |
+| An API call returns **503 "The database is out of date for this feature"** (older builds: **500** with `relation "unit_registrations" does not exist` in the `[api]` terminal) | A newer version added tables and migrations have not been applied with `npm run db:migrate`. |
+| `✖ The database has not been updated for the latest version yet` when seeding | Run `supabase db reset` on the local Supabase CLI project, then retry `npm run db:seed`. |
 | Signed in, then bounced back to login | The API rejected the session. Check `SUPABASE_URL` matches in `backend/.env` and `web/.env`; check the `[api]` terminal for errors. |
 | Browser shows **"Cannot reach the Finesse API"** | The API isn't running. Check the `[api]` terminal and http://localhost:4000/api/health. |
 | `EADDRINUSE :4000` or `:5173` | Port in use. Stop the other process, or set `PORT` in `backend/.env` (and the proxy target in `web/vite.config.ts`). |
@@ -331,16 +378,37 @@ otherwise it is readable and writable by the whole internet. Put the change in `
 ## 10. Tests
 
 ```bash
-npm run test:unit      # backend unit tests: statement parser, clearance rules, upload route. No database or secrets needed (Node 22+)
-npm test               # backend integration tests + web unit/component tests
+npm run test:unit      # backend unit tests, no database or secrets needed (Node 22+)
+npm test               # backend unit tests + web unit/component tests; never contacts Supabase
 npm run test:mobile    # mobile tests (no phone needed)
 cd web && npm run typecheck && npm run lint
 cd mobile && npx tsc --noEmit && npx expo lint
 ```
 
-⚠ **The backend tests run against the real Supabase project in `backend/.env`** and create real users,
-tickets and bookings. They delete what they create when they finish, but because the whole team shares that
-project, ideally create a second, free "finesse-dev" project for testing (or run them when nobody is demoing).
+Remote API and RLS tests are opt-in and fail closed unless `ALLOW_INTEGRATION_TESTS=staging` is set,
+`SUPABASE_URL` is exactly `https://jqmxcnilrwgirsdufzjn.supabase.co`, and `DATABASE_URL` identifies that
+project's direct database host or pooler username. They never run as part of `npm test`.
+To deliberately run against staging, use a separate staging env file and explicitly set the gate in that
+terminal:
+
+```powershell
+Set-Location .\backend
+$env:DOTENV_CONFIG_PATH = '.env.staging'
+$env:ALLOW_INTEGRATION_TESTS = 'staging'
+npm run test:integration
+
+# Configure UUIDs for one staging profile of each role (the last profile must be inactive):
+$env:RLS_TEST_STUDENT_ID = '<student-uuid>'
+$env:RLS_TEST_STAFF_ID = '<staff-uuid>'
+$env:RLS_TEST_LECTURER_ID = '<lecturer-uuid>'
+$env:RLS_TEST_ADMIN_ID = '<admin-uuid>'
+$env:RLS_TEST_INACTIVE_ID = '<inactive-user-uuid>'
+npm run test:rls
+```
+
+The RLS suite uses a rolled-back transaction and checks row visibility for student, staff, lecturer, admin
+and inactive identities. Do not copy real UUIDs into tracked files. The integration guard verifies the
+project URL before test modules load or any connection is opened.
 
 ## 11. API reference
 
@@ -356,8 +424,10 @@ validation errors add `details: [{ field, message }]`.
 | `GET /auth/me` · `POST /auth/change-password` | signed in | current profile (with role) · change password |
 | `GET /tickets` · `POST /tickets` | student: own · staff: all | list · raise (students only) |
 | `GET /tickets/:id` | owner or staff | one ticket (404 for other students') |
-| `PATCH /tickets/:id` | student: cancel only · staff: status/priority/notes | update |
+| `PATCH /tickets/:id` | student: cancel only · staff: status/priority/new response | update; responses append to history |
 | `POST /tickets/:id/book` · `DELETE /tickets/:id/booking` | owner or staff | book / cancel appointment (atomic) |
+| `GET /admin/staff` · `POST /admin/staff` | admin | list staff · create an account (returns a one-time temporary password; staff must change it) |
+| `PATCH /admin/staff/:id` | admin | assign staff/admin/lecturer role or activate/deactivate account |
 | `GET /slots/dates` · `GET /slots?date=` | signed in | dates with free slots · slots for a day |
 | `POST /slots/generate` | staff | create 30-min slots for a date |
 | `GET /fee-records/mine` | student | own fee records |
@@ -417,7 +487,7 @@ unknown paths (`web/public/_redirects` for Netlify/Cloudflare and `web/vercel.js
 * Days use the campus calendar (`Africa/Nairobi`). The daily table can be exported as CSV.
 
 Tickets and activity that happened *before* this feature was installed have no activity history (the backfill only fixes ticket timestamps).
-In the demo, `seed_demo.sql` adds two weeks of sample history so the charts aren't empty.
+In a local demo, `database/supabase/local/seed_demo.sql` adds two weeks of sample history so the charts aren't empty.
 
 ## 12b. Exam-hall sign-in (one scan: genuine card, the student's units, and the signature)
 
@@ -465,12 +535,12 @@ scan, no refresh needed (live updates need `npm run db:schema` to have been run,
 with every signature, reset and bar in `unit_sign_log`. The register can be exported as CSV, and students see their
 units on their exam card (printed too).
 
-**Demo.** `npm run db:seed` adds `lecturer@finesse.ac.ke` (password as the other demo accounts), four units and Amina's
+**Local demo only.** `npm run db:seed` adds `lecturer@finesse.ac.ke` (password as the other demo accounts), four units and Amina's
 registrations (barred from EEE202 for missing coursework). Sign in as the lecturer, choose *EEE201*, and scan Amina's card
 (*Print card* on her exam card page shows the QR; or paste its code into the box).
 
 **Not covered yet:** a scanner inside the mobile app (lecturers on the phone app are pointed to the web scanner),
-and working offline in a hall with no signal (each scan needs the server).
+and working offline in a hall with no signal (each scan needs the server).p
 
 ## 13. Going to production
 
@@ -478,16 +548,20 @@ Checklist (nothing here is optional for a real deployment):
 
 * **Secrets:** `backend/.env` holds your Supabase **service-role key** and database password. It must never be committed, zipped, emailed or
   pasted anywhere. If it ever has been, **rotate both** in the Supabase dashboard. On your host, set variables in its dashboard instead of using a file.
-* **Backend** (Render/Railway/Fly/any Docker host; `backend/Dockerfile` is included): `NODE_ENV=production`, `CORS_ORIGIN` (the web app's URL), `PUBLIC_WEB_URL`,
+* **Backend** (Render/Railway/Fly/any Docker host; `backend/Dockerfile` is included): `NODE_ENV=production`, `CORS_ORIGIN` (exact comma-separated HTTPS origins only), `PUBLIC_WEB_URL`,
   `TRUST_PROXY=1`, plus the Supabase variables. In production the server refuses to start without `CORS_ORIGIN` and `PUBLIC_WEB_URL`.
-  It logs one JSON line per request (with a request id, also returned as `X-Request-Id`), rate-limits every route, and shuts down gracefully on deploy.
-* **Database:** run `npm run db:schema` once against the production project (it is safe to re-run). **Do not run `db:seed` in production**:
-  it creates demo logins with known passwords. Create the first staff/admin account in *Authentication ▸ Users* and set its `role` in `profiles`.
-* **Storage:** the private `fee-statements` bucket is created automatically on start-up.
-* **Web:** `npm run build`, host `web/dist` on any static host, built with `VITE_API_URL` pointing at the API.
+  It applies Helmet, 2 MB JSON and configured upload limits, per-route limits for signup/password changes, ticket creation/classification and uploads, and a broader fallback limiter. `TRUST_PROXY` must match the host's actual proxy-hop count. Structured request/error logs use server-generated correlation IDs and route templates; they exclude IPs, user identifiers, request data, headers, raw errors and stack traces. `/api/health` reports only API/database readiness and version. The process handles SIGTERM gracefully for long-running Node hosts.
+* **Database:** link the Supabase CLI to the intended project and run `npm run db:migrate` to apply pending migrations. Never run `db:seed` against a hosted project.
+  Bootstrap the first admin once with `npm run bootstrap:admin` from `backend/` after setting `BOOTSTRAP_ADMIN_NAME` and `BOOTSTRAP_ADMIN_EMAIL` plus the target Supabase environment. The script generates a one-time password and checks that all required migration versions are applied before creating or changing an Auth user. Afterward, use the admin-only `/api/admin/staff` endpoints; do not promote accounts with manual SQL.
+* **Input validation:** critical backend request bodies, query values, dates, academic years, and record IDs are validated server-side. The API returns a consistent `Validation failed` response with field-level details for schema errors. Web and mobile period dates use date pickers; academic years use dropdowns.
+* **Ticket classifier (F08):** rules-based classification is the default and has no external dependency. Staff see the category/priority recommendation, rationale, provider, and timestamp and can apply or override it; the classifier never changes the ticket's confirmed category/priority or resolves it. Recommendations are stored separately in `ticket_classification_recommendations`; apply the new migration before deploying this code. An optional OpenAI-compatible endpoint is enabled only when `CLASSIFIER_LLM_API_KEY`, `CLASSIFIER_LLM_URL`, and `CLASSIFIER_LLM_MODEL` are configured on the backend. The URL must be HTTPS in production; requests have a timeout and send `store: false` plus a redacted description. Only configure an endpoint whose terms/settings prohibit training on submitted content. With no key, or if classification fails/times out, ticket creation continues at the default medium priority.
+* **Audit:** the new migration creates `staff_action_audit_log` (no client grants/RLS access). API transactions record staff responses, staff account creation/role/active-state changes, fee-record import batches and exceptions, and exam-card approvals/revocations. Free-form notes, response bodies and student financial details are deliberately excluded from audit metadata.
+* **Storage:** the new migration creates the private `fee-statements` bucket (5 MiB) and owner/staff read plus owner-only insert policies. Only PDF, CSV/text and PNG/JPEG MIME types are allowed; the API sniffs file bytes as well as enforcing that allowlist. Past/booked slots are hidden from non-staff direct reads; inactive periods are limited to staff/admin. Students and lecturers see only active periods. These policies replace the previous broad `USING (true)` policies.
+* **Web:** `npm run build`, host `web/dist` on any static host, built with `VITE_API_URL` pointing at the API. Production source maps are disabled.
 * **Mobile:** build with EAS and `EXPO_PUBLIC_API_URL=https://…`.
 * **Backups:** Supabase's free tier has none and pauses idle projects. Use a paid plan with point-in-time recovery.
-* **Email:** fill in `SMTP_*` to deliver exam-card and rejection emails (otherwise they are only stored).
+* **Backend email:** configure SMTP independently from Supabase Auth. For Gmail, enable 2-Step Verification and create a Google App Password; set `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, `SMTP_USER` to the Gmail address, `SMTP_PASS` to the App Password, and `MAIL_FROM` to a sender using that Gmail address. Never use your normal Google password. Keep these values in backend host secrets, never in web/mobile or committed files. The shared Nodemailer transporter sends from the long-running Node API; each notification is recorded in `sent_emails` before delivery, and failed delivery remains undelivered in the outbox. Ticket response and appointment emails are dispatched asynchronously so mail failures do not block those actions. Other notification types remain out of scope.
+* **Supabase Auth email:** configure custom SMTP separately in the staging Supabase dashboard: *Project Settings ▸ Authentication ▸ SMTP Settings* (menu labels may vary), enable custom SMTP, then set host `smtp.gmail.com`, port `587`, username to the Gmail address, password to the Google App Password, and sender name/email. Save and use the dashboard's test email if available. A verified sender/domain may be required; Gmail SMTP may be unsuitable for campus-scale delivery. These settings are separate from backend `SMTP_*`; do not rely on Supabase's default Auth mailer.
 * **CI:** `.github/workflows/ci.yml` runs the unit tests, type checks and builds on every push. Run `npm install` in `backend`, `web` and `mobile` once and commit the updated `package-lock.json` files first (new dependencies were added).
 
 ## 14. Going beyond localhost (details)
@@ -497,10 +571,8 @@ Checklist (nothing here is optional for a real deployment):
 * `npm run build` the web app (output in `web/dist`), host it on any static host, and build with
   `VITE_API_URL` set to the API's public URL.
 * Mobile release builds need `EXPO_PUBLIC_API_URL=https://…`.
-* **Change the demo passwords** (or delete the demo users).
 * Supabase's free tier pauses idle projects and has no automatic backups: upgrade before going live.
-* **Real email:** by default emails are stored in `sent_emails` (visible under *Email Templates ▸ Sent emails*).
-  To deliver them, fill in the `SMTP_*` values in `backend/.env`.
+* **Email:** backend notifications are stored in `sent_emails` unless `SMTP_*` is configured. Supabase Auth SMTP is configured separately in the Supabase dashboard.
 * Registration and password changes are rate-limited (20 attempts / 15 min per IP); sign-in attempts are
   rate-limited by Supabase.
 
@@ -528,15 +600,18 @@ Checklist (nothing here is optional for a real deployment):
 ## 16. Project layout
 
 ```
+supabase/
+  config.toml
+  migrations/     ordered schema migrations (apply with `supabase db push`)
 database/supabase/
-  schema.sql      tables · security (RLS) · triggers · SQL functions · realtime · default email templates (re-runnable)
-  seed_demo.sql   demo data (run by `npm run db:seed`)
-  reset.sql       ⚠ drops every Finesse table (run by `npm run db:reset`, asks first)
+  schema.sql      legacy source snapshot for the initial migration
+  local/seed_demo.sql  local-only demo data (run by `npm run db:seed`; refuses hosted projects)
+  reset.sql       legacy reset SQL; use `supabase db reset` for the local CLI database
 backend/src/
   server.js, app.js, config.js, db.js (Postgres), supabase.js (admin client), mailer.js
   middleware/  auth.js (verifies the Supabase token + loads the profile), errors.js
   routes/      auth, tickets, slots, fees, exam (periods + applications), templates
-backend/scripts/db-setup.js      npm run db:schema | db:seed | db:setup | db:reset
+backend/scripts/db-setup.js      local demo seeding/password tools (non-local targets refused)
 backend/test/api.test.js         18 integration tests
 web/src/
   lib/         api client, supabase client, realtime hook, types, CSV parser, helpers

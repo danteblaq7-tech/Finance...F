@@ -1,20 +1,10 @@
-// One-command database setup for Supabase.
-//
-//   npm run db:schema   create/upgrade tables, security rules and realtime (safe to re-run, never deletes data)
-//   npm run db:seed     create the demo logins in Supabase Auth, then load the demo data
-//   npm run db:setup    both of the above  ← what you want the first time
-//   npm run db:reset    ⚠ DROP every Finesse table (asks first), then run db:setup yourself
-//   npm run db:passwords  put every existing demo account back on the demo password
-//
-// Everything here talks to the project in backend/.env. Because the whole team shares one Supabase project,
-// the project OWNER runs this once; teammates never need to.
+// Local-only demo account and seed-data helpers.
 import { readFile } from 'node:fs/promises';
-import { createInterface } from 'node:readline/promises';
-import { describeTarget } from '../src/config.js';
 import { pool, queryOne, query } from '../src/db.js';
+import { assertLocalDemoTarget } from '../src/localProject.js';
 import { supabaseAdmin } from '../src/supabase.js';
 
-const SQL_DIR = new URL('../../database/supabase/', import.meta.url);
+const LOCAL_SEED_FILE = new URL('../../database/supabase/local/seed_demo.sql', import.meta.url);
 const DEMO_PASSWORD = process.env.DEMO_PASSWORD || 'Finesse@2026';
 
 const DEMO_USERS = [
@@ -26,14 +16,6 @@ const DEMO_USERS = [
   { email: 'cynthia@students.finesse.ac.ke', name: 'Cynthia Chebet', role: 'student', student_id: 'BUS/052/2025', university: 'Moi University', course: 'BCom Finance', year_of_study: '1' },
   { email: 'david@students.finesse.ac.ke', name: 'David Mutua', role: 'student', student_id: 'MED/009/2022', university: 'Moi University', course: 'MBChB Medicine', year_of_study: '4' },
 ];
-
-const runFile = async (name) => pool.query(await readFile(new URL(name, SQL_DIR), 'utf8'));
-
-async function applySchema() {
-  console.log('→ Applying database/supabase/schema.sql …');
-  await runFile('schema.sql');
-  console.log('✔ Schema, security policies and realtime are in place.');
-}
 
 async function createDemoUsers() {
   console.log('→ Creating demo logins in Supabase Auth …');
@@ -58,29 +40,33 @@ async function createDemoUsers() {
   }
 }
 
-// The demo seed creates logins with a publicly known password, and reset DROPS every table: never in production.
-function refuseInProduction(what) {
-  if (process.env.NODE_ENV === 'production') throw new Error(`Refusing to ${what} while NODE_ENV=production.`);
+function requireLocalDemoTarget() {
+  assertLocalDemoTarget({
+    nodeEnv: process.env.NODE_ENV,
+    supabaseUrl: process.env.SUPABASE_URL,
+    databaseUrl: process.env.DATABASE_URL,
+  });
 }
 
-// The demo data needs the newest tables and the 'lecturer' role. Say so up front instead of failing half-way through.
 async function requireCurrentSchema() {
   const ok = await queryOne("SELECT to_regclass('public.exam_units') IS NOT NULL AS tables, pg_get_constraintdef(c.oid) LIKE '%lecturer%' AS role_ok FROM pg_constraint c WHERE c.conname = 'profiles_role_check' AND c.conrelid = 'public.profiles'::regclass");
-  if (!ok?.tables || !ok?.role_ok) throw new Error('The database has not been updated for the latest version yet. Run "npm run db:schema" first (it is safe to re-run), then run this again.');
+  if (!ok?.tables || !ok?.role_ok) {
+    throw new Error('Apply the Supabase migrations to the local database first with "supabase db reset".');
+  }
 }
 
 async function seed() {
-  refuseInProduction('load demo data');
+  requireLocalDemoTarget();
   await requireCurrentSchema();
   await createDemoUsers();
-  console.log('→ Loading demo data (database/supabase/seed_demo.sql) …');
-  await runFile('seed_demo.sql');
+  console.log('→ Loading local-only demo data …');
+  await pool.query(await readFile(LOCAL_SEED_FILE, 'utf8'));
   console.log(`✔ Demo data loaded. Every demo account uses the password: ${DEMO_PASSWORD}`);
 }
 
 // Set every EXISTING demo account's password back to the demo password (use when a demo login says "Invalid login credentials").
 async function demoPasswords() {
-  refuseInProduction('reset the demo passwords');
+  requireLocalDemoTarget();
   console.log('→ Resetting demo passwords …');
   for (const u of DEMO_USERS) {
     const profile = await queryOne('SELECT id FROM profiles WHERE email = $1', [u.email]);
@@ -91,43 +77,17 @@ async function demoPasswords() {
   console.log(`✔ Done. The demo password is: ${DEMO_PASSWORD}`);
 }
 
-async function reset() {
-  refuseInProduction('reset the database');
-  const { dbHost } = describeTarget();
-  console.log(`⚠  This will DROP every Finesse table in the database at ${dbHost}.`);
-  console.log('   The whole team shares this database, so everyone loses their data. Supabase Auth users are not deleted.');
-  if (!process.argv.includes('--yes')) {
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
-    const answer = (await rl.question('   Type RESET to continue: ')).trim();
-    rl.close();
-    if (answer !== 'RESET') {
-      console.log('Cancelled. Nothing was changed.');
-      return;
-    }
-  }
-  await runFile('reset.sql');
-  console.log('✔ Tables dropped. Now run: npm run db:setup');
-}
-
 const commands = {
-  schema: applySchema,
   seed,
   passwords: demoPasswords,
-  all: async () => {
-    await applySchema();
-    await seed();
-  },
-  reset,
 };
 
-const name = process.argv[2] ?? 'all';
+const name = process.argv[2] ?? 'seed';
 if (!commands[name]) {
   console.error(`Unknown command "${name}". Use one of: ${Object.keys(commands).join(', ')}`);
   process.exit(1);
 }
 
-const { dbHost } = describeTarget();
-console.log(`Using the database at ${dbHost}\n`);
 try {
   await commands[name]();
 } catch (e) {

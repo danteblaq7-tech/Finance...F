@@ -3,11 +3,10 @@ import { z } from 'zod';
 import { pool, query } from '../db.js';
 import { isStaff, requireAuth, requireStaff } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/errors.js';
+import { dateSchema } from '../validation.js';
 
 const router = Router();
 router.use(requireAuth);
-
-const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
 
 // Dates in the next N days that still have free slots.
 router.get(

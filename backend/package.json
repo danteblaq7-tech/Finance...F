@@ -9,15 +9,16 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node --experimental-test-module-mocks --test",
-    "db:schema": "node scripts/db-setup.js schema",
+    "test": "npm run test:unit",
     "db:seed": "node scripts/db-setup.js seed",
-    "db:setup": "node scripts/db-setup.js all",
-    "db:reset": "node scripts/db-setup.js reset",
     "db:passwords": "node scripts/db-setup.js passwords",
+    "bootstrap:admin": "node scripts/bootstrap-first-admin.js",
+    "bootstrap:admin:staging": "node scripts/bootstrap-first-admin-staging.js",
+    "registry:import": "node scripts/import-student-registry.js",
     "test:unit": "node --experimental-test-module-mocks --test \"test/unit/*.test.js\"",
-    "test:integration": "node --test \"test/api.test.js\"",
-    "test:invigilation": "node --experimental-test-module-mocks --test test/invigilation.db.test.js"
+    "test:integration": "node scripts/guard-integration-tests.js && node --test test/api.test.js",
+    "test:invigilation": "node scripts/guard-integration-tests.js && node --experimental-test-module-mocks --test test/invigilation.db.test.js",
+    "test:rls": "node scripts/guard-integration-tests.js && node --test test/rls.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

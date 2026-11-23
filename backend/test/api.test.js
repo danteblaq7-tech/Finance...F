@@ -1,10 +1,11 @@
-// Integration tests: run against the REAL Supabase project defined in backend/.env
-// (real Postgres + real Supabase Auth). They create uniquely-named users and records and delete them again
-// when the run finishes, but because the whole team shares one project, prefer a separate "dev" project for
-// tests if you can, and don't run them while a teammate is demoing.
+// Staging-only integration tests. Both the explicit test opt-in and staging project/database target
+// are validated before application, database, or Auth modules are loaded.
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
+import 'dotenv/config';
+import { assertStagingIntegrationTarget } from '../src/integrationTestGuard.js';
 
+assertStagingIntegrationTarget();
 process.env.NODE_ENV = 'test';
 const { createApp } = await import('../src/app.js');
 const { pool, queryOne } = await import('../src/db.js');
@@ -15,6 +16,8 @@ let server;
 let base;
 const PASSWORD = 'Finesse@2026';
 const run = Date.now().toString(36);
+const runStudentNumber = String(Date.now() % 1000).padStart(3, '0');
+const studentNumber = (course) => `${course}/${runStudentNumber}/26`;
 const createdUserIds = [];
 let testPeriodId; // an exam period created by this run, open today, so the tests never depend on seed dates
 
@@ -69,12 +72,12 @@ after(async () => {
     const tickets = await pool.query('SELECT appointment_slot_id FROM tickets WHERE description ILIKE $1 AND appointment_slot_id IS NOT NULL', [`%${run}%`]);
     for (const t of tickets.rows) await pool.query('SELECT unbook_slot($1)', [t.appointment_slot_id]);
     await pool.query('DELETE FROM tickets WHERE description ILIKE $1', [`%${run}%`]);
-    await pool.query('DELETE FROM fee_records WHERE student_id ILIKE $1', [`FLOW/_/${run}`]);
+    await pool.query('DELETE FROM fee_records WHERE student_id ILIKE $1', [`FL%/${runStudentNumber}/26`]);
     await pool.query('DELETE FROM sent_emails WHERE to_email ILIKE $1', [`%-${run}@students.finesse.ac.ke`]);
     await pool.query('DELETE FROM exam_periods WHERE id = $1', [testPeriodId]);
     for (const id of createdUserIds) await supabaseAdmin.auth.admin.deleteUser(id);
   } catch (e) {
-    console.error('Test cleanup failed (remove leftovers manually):', e.message);
+    console.error(JSON.stringify({ event: 'integration_cleanup_failed', errorCode: e.code || 'unknown' }));
   }
   await new Promise((r) => server.close(r));
   await pool.end();
@@ -119,7 +122,7 @@ describe('health + auth', () => {
   });
 
   test('registration is student-only, ignores a client-supplied role, and the new account can sign in', async () => {
-    const { reg, token } = await registerAndLogin({ name: 'Role Tester', email: `role-${run}@students.finesse.ac.ke`, studentId: `ROLE/${run}`, role: 'admin' });
+    const { reg, token } = await registerAndLogin({ name: 'Role Tester', email: `role-${run}@students.finesse.ac.ke`, studentId: studentNumber('ROLE'), role: 'admin' });
     assert.equal(reg.status, 201);
     assert.equal(reg.json.user.role, 'student');
     assert.ok(token, 'the new user can sign in with the password they registered with');
@@ -127,7 +130,7 @@ describe('health + auth', () => {
   });
 
   test('change-password: wrong current password is refused, correct one works and the new password signs in', async () => {
-    const { token } = await registerAndLogin({ name: 'Pw Tester', email: `pw-${run}@students.finesse.ac.ke`, studentId: `PW/${run}` });
+    const { token } = await registerAndLogin({ name: 'Pw Tester', email: `pw-${run}@students.finesse.ac.ke`, studentId: studentNumber('PW') });
     const bad = await api('/api/auth/change-password', { method: 'POST', token, body: { currentPassword: 'not-my-password', newPassword: 'Brand-new-pass-1' } });
     assert.equal(bad.status, 400);
     const ok = await api('/api/auth/change-password', { method: 'POST', token, body: { currentPassword: PASSWORD, newPassword: 'Brand-new-pass-1' } });
@@ -139,12 +142,12 @@ describe('health + auth', () => {
   test('duplicate email is rejected with 409 and weak passwords with 400', async () => {
     const dup = await api('/api/auth/register', {
       method: 'POST',
-      body: { name: 'Dup', email: 'amina@students.finesse.ac.ke', password: PASSWORD, studentId: `DUP/${run}` },
+      body: { name: 'Dup', email: 'amina@students.finesse.ac.ke', password: PASSWORD, studentId: studentNumber('DUP') },
     });
     assert.equal(dup.status, 409);
     const weak = await api('/api/auth/register', {
       method: 'POST',
-      body: { name: 'Weak', email: `weak-${run}@x.ke`, password: 'short', studentId: `WEAK/${run}` },
+      body: { name: 'Weak', email: `weak-${run}@x.ke`, password: 'short', studentId: studentNumber('WEAK') },
     });
     assert.equal(weak.status, 400);
   });
@@ -207,7 +210,7 @@ describe('tickets + appointment booking', () => {
     assert.equal(rebook.status, 200);
   });
 
-  test('students may only cancel; staff can change status and notes', async () => {
+  test('students may only cancel; staff responses append to history and cancelled tickets are read-only', async () => {
     const amina = (await login('amina@students.finesse.ac.ke')).json.token;
     const staff = (await login('staff@finesse.ac.ke')).json.token;
     const t = (await api('/api/tickets', { method: 'POST', token: amina, body: { issueType: 'other', description: `Something else entirely ${run}` } })).json.ticket;
@@ -215,14 +218,23 @@ describe('tickets + appointment booking', () => {
     const sneaky = await api(`/api/tickets/${t.id}`, { method: 'PATCH', token: amina, body: { status: 'resolved' } });
     assert.equal(sneaky.status, 400);
 
-    const upd = await api(`/api/tickets/${t.id}`, { method: 'PATCH', token: staff, body: { status: 'in_review', staffNotes: 'Looking into it' } });
+    const upd = await api(`/api/tickets/${t.id}`, { method: 'PATCH', token: staff, body: { status: 'in_review', response: 'Looking into it' } });
     assert.equal(upd.status, 200);
     assert.equal(upd.json.ticket.status, 'in_review');
-    assert.equal(upd.json.ticket.staff_notes, 'Looking into it');
+    assert.equal(upd.json.ticket.responses.length, 1);
+    assert.equal(upd.json.ticket.responses[0].body, 'Looking into it');
     assert.ok(upd.json.ticket.assigned_staff_id, 'moving to in_review assigns the staff member');
 
+    const second = await api(`/api/tickets/${t.id}`, { method: 'PATCH', token: staff, body: { response: 'We have confirmed the account details.' } });
+    assert.equal(second.json.ticket.responses.length, 2);
+    assert.equal(second.json.ticket.responses[0].body, 'Looking into it');
+    assert.equal(second.json.ticket.responses[1].body, 'We have confirmed the account details.');
+
     const cancel = await api(`/api/tickets/${t.id}`, { method: 'PATCH', token: amina, body: { status: 'cancelled' } });
+    assert.equal(cancel.status, 200);
     assert.equal(cancel.json.ticket.status, 'cancelled');
+    const afterCancel = await api(`/api/tickets/${t.id}`, { method: 'PATCH', token: staff, body: { response: 'This must not be added.' } });
+    assert.equal(afterCancel.status, 409);
   });
 
   test('input validation: too-short description is a 400 with details', async () => {
@@ -244,8 +256,8 @@ describe('exam card workflow', () => {
       assert.ok(token, `flow ${n} user could register and sign in`);
       return { token };
     };
-    const paid = await reg('paid', `FLOW/P/${run}`.toUpperCase());
-    const owing = await reg('owing', `FLOW/O/${run}`.toUpperCase());
+    const paid = await reg('paid', studentNumber('FLP'));
+    const owing = await reg('owing', studentNumber('FLO'));
 
     // Staff imports fees (client-supplied balance/cleared would be ignored: server recomputes)
     const imp = await api('/api/fee-records/import', {
@@ -253,8 +265,8 @@ describe('exam card workflow', () => {
       body: {
         academicYear: '2026/2027', semester: 'Semester 1',
         rows: [
-          { student_id: `FLOW/P/${run}`, student_name: 'Flow paid', total_fee: 50000, amount_paid: 50000 },
-          { student_id: `FLOW/O/${run}`, student_name: 'Flow owing', total_fee: 50000, amount_paid: 30000 },
+          { student_id: studentNumber('FLP'), student_name: 'Flow paid', total_fee: 50000, amount_paid: 50000 },
+          { student_id: studentNumber('FLO'), student_name: 'Flow owing', total_fee: 50000, amount_paid: 30000 },
         ],
       },
     });
@@ -291,11 +303,11 @@ describe('exam card workflow', () => {
     assert.equal(override.json.application.manual_approval_note, 'Sponsor letter received');
 
     // A rejected student who then pays in full can re-apply and is approved
-    const late = await reg('late', `FLOW/L/${run}`.toUpperCase());
-    await api('/api/fee-records/import', { method: 'POST', token: staff, body: { academicYear: '2026/2027', semester: 'Semester 1', rows: [{ student_id: `FLOW/L/${run}`, total_fee: 40000, amount_paid: 10000 }] } });
+    const late = await reg('late', studentNumber('FLL'));
+    await api('/api/fee-records/import', { method: 'POST', token: staff, body: { academicYear: '2026/2027', semester: 'Semester 1', rows: [{ student_id: studentNumber('FLL'), total_fee: 40000, amount_paid: 10000 }] } });
     const first = await api('/api/applications', { method: 'POST', token: late.token, body: { examPeriodId: periodId } });
     assert.equal(first.json.application.status, 'rejected');
-    await api('/api/fee-records/import', { method: 'POST', token: staff, body: { academicYear: '2026/2027', semester: 'Semester 1', rows: [{ student_id: `FLOW/L/${run}`, total_fee: 40000, amount_paid: 40000 }] } });
+    await api('/api/fee-records/import', { method: 'POST', token: staff, body: { academicYear: '2026/2027', semester: 'Semester 1', rows: [{ student_id: studentNumber('FLL'), total_fee: 40000, amount_paid: 40000 }] } });
     const second = await api('/api/applications', { method: 'POST', token: late.token, body: { examPeriodId: periodId } });
     assert.equal(second.status, 201);
     assert.equal(second.json.application.status, 'approved');

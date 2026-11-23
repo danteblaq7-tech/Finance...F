@@ -1,11 +1,10 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useContext, type ComponentProps, type ReactNode } from 'react';
+import { useContext, useState, type ComponentProps, type ReactNode } from 'react';
 import {
   ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet,
   Text, TextInput, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useState } from 'react';
 import { InShellContext } from './ShellContext';
 import { useTheme } from '@/theme/ThemeProvider';
 import { FONTS, RADIUS, SPACING, type Palette } from '@/theme/theme';
@@ -147,6 +146,52 @@ export function TextField({
         ]}
       />
     </Field>
+  );
+}
+
+export function SelectField({
+  label, value, options, onChange, error, placeholder = 'Select…',
+}: {
+  label: string; value: string; options: { label: string; value: string }[]; onChange: (value: string) => void; error?: string; placeholder?: string;
+}) {
+  const { colors } = useTheme();
+  const [open, setOpen] = useState(false);
+  const selected = options.find((option) => option.value === value);
+  return (
+    <>
+      <Field label={label} error={error}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={label}
+          accessibilityState={{ expanded: open }}
+          onPress={() => setOpen(true)}
+          style={[s.input, { backgroundColor: colors.bg_input, borderColor: error ? colors.accent_red : colors.border, justifyContent: 'center' }]}
+        >
+          <AppText variant={selected ? 'body' : 'muted'}>{selected?.label ?? placeholder}</AppText>
+        </Pressable>
+      </Field>
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <View style={{ flex: 1, justifyContent: 'center', padding: SPACING.lg, backgroundColor: '#0009' }}>
+          <View style={{ maxHeight: '75%', backgroundColor: colors.bg_secondary, borderRadius: RADIUS.lg, borderColor: colors.border, borderWidth: 1, padding: SPACING.md }}>
+            <AppText variant="heading" style={{ marginBottom: SPACING.sm }}>{label}</AppText>
+            <ScrollView>
+              {options.map((option) => (
+                <Pressable
+                  key={option.value}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: option.value === value }}
+                  onPress={() => { onChange(option.value); setOpen(false); }}
+                  style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}
+                >
+                  <AppText>{option.label}</AppText>
+                </Pressable>
+              ))}
+            </ScrollView>
+            <Button title="Close" variant="secondary" onPress={() => setOpen(false)} style={{ marginTop: SPACING.md }} />
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 

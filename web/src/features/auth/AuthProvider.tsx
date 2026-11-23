@@ -15,10 +15,39 @@ interface AuthState {
   loading: boolean;
   login: (email: string, password: string) => Promise<User>;
   register: (input: RegisterInput) => Promise<User>;
+  refreshProfile: () => Promise<User>;
   logout: () => void;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
+type AuthIdentity = {
+  id: string;
+  email?: string;
+  user_metadata?: { name?: string };
+  app_metadata?: { role?: string; must_change_password?: boolean };
+};
+
+const isUserRole = (role: unknown): role is User['role'] =>
+  role === 'student' || role === 'staff' || role === 'admin' || role === 'lecturer';
+
+function pendingPasswordUser(identity: AuthIdentity): User {
+  return {
+    id: identity.id,
+    name: identity.user_metadata?.name || identity.email?.split('@')[0] || 'Account holder',
+    email: identity.email || '',
+    student_id: null,
+    university: null,
+    course: null,
+    year_of_study: null,
+    role: isUserRole(identity.app_metadata?.role) ? identity.app_metadata.role : 'student',
+    must_change_password: true,
+  };
+}
+
+const isPasswordChangeRequired = (error: unknown) =>
+  error instanceof ApiError
+  && error.status === 403
+  && error.message === 'Change your temporary password before continuing.';
 
 // eslint-disable-next-line react-refresh/only-export-components
 export function useAuth(): AuthState {
@@ -42,6 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
   // undefined = Supabase hasn't told us yet whether there is a saved session; null = signed out.
   const [sessionUid, setSessionUid] = useState<string | null | undefined>(undefined);
+  const [authIdentity, setAuthIdentity] = useState<AuthIdentity | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const userRef = useRef<User | null>(null);
@@ -58,6 +88,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return promise;
   }, []);
 
+  const refreshProfile = useCallback(async () => {
+    if (!userRef.current) throw new Error('You must be signed in to refresh your profile.');
+    const updated = await loadProfile(userRef.current.id);
+    setUser(updated);
+    return updated;
+  }, [loadProfile]);
+
   const logout = useCallback(() => {
     setUser(null);
     qc.clear();
@@ -67,7 +104,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Supabase restores the saved session (INITIAL_SESSION), refreshes tokens, and reports sign-in/out from any tab.
   // Keep this callback synchronous: calling Supabase from inside it can deadlock.
   useEffect(() => {
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => setSessionUid(session?.user.id ?? null));
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthIdentity(session?.user ? session.user as AuthIdentity : null);
+      setSessionUid(session?.user.id ?? null);
+    });
     return () => data.subscription.unsubscribe();
   }, []);
 
@@ -76,6 +116,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (sessionUid === undefined) return;
     if (sessionUid === null) {
       setUser(null);
+      setAuthIdentity(null);
       qc.clear();
       setLoading(false);
       return;
@@ -86,17 +127,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     if (userRef.current) qc.clear(); // a different account signed in: drop the previous one's cached data
     let cancelled = false;
+    if (authIdentity?.id === sessionUid && authIdentity.app_metadata?.must_change_password) {
+      setUser(pendingPasswordUser(authIdentity));
+      setLoading(false);
+      return;
+    }
     loadProfile(sessionUid)
       .then((u) => { if (!cancelled) setUser(u); })
       .catch((e: unknown) => {
         if (cancelled) return;
+        if (isPasswordChangeRequired(e) && authIdentity?.id === sessionUid) {
+          setUser(pendingPasswordUser(authIdentity));
+          return;
+        }
         // Only a rejected session ends it. If the API is merely unreachable, stay put and let the user retry.
         if (e instanceof ApiError && e.status === 401) void supabase.auth.signOut();
         setUser(null);
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [sessionUid, qc, loadProfile]);
+  }, [sessionUid, authIdentity, qc, loadProfile]);
 
   // Any API call that comes back 401 (expired/revoked session) signs the user out.
   useEffect(() => {
@@ -105,17 +155,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [logout]);
 
   // Live updates from the shared database.
-  useRealtimeSync(!!user);
+  useRealtimeSync(!!user && !user.must_change_password);
 
   const login = useCallback(async (email: string, password: string): Promise<User> => {
     const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
     if (error) throw toApiError(error);
+    const identity = data.user as AuthIdentity;
+    setAuthIdentity(identity);
     try {
+      if (identity.app_metadata?.must_change_password) {
+        const pending = pendingPasswordUser(identity);
+        qc.clear();
+        setUser(pending);
+        return pending;
+      }
       const u = await loadProfile(data.user.id);
       qc.clear();
       setUser(u);
       return u;
     } catch (e) {
+      if (isPasswordChangeRequired(e)) {
+        const pending = pendingPasswordUser(identity);
+        qc.clear();
+        setUser(pending);
+        return pending;
+      }
       void supabase.auth.signOut(); // signed in to Supabase but the API refused/was unreachable: don't leave a half session
       throw e;
     }
@@ -124,13 +188,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AuthState>(
     () => ({
       user, loading, logout, login,
+      refreshProfile,
       register: async (input) => {
         // The API validates, creates the Supabase account (role is always "student"), then we sign in with it.
         await api.post('/auth/register', input);
         return login(input.email, input.password);
       },
     }),
-    [user, loading, logout, login],
+    [user, loading, logout, login, refreshProfile],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

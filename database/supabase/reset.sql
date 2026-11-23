@@ -2,9 +2,8 @@
 --  FINESSE · RESET  (⚠ DESTRUCTIVE)
 --  Drops every Finesse table, view and function from the `public` schema.
 --  Your Supabase Auth users are NOT touched (delete them in Authentication ▸ Users).
---  Afterwards run:  npm run db:setup
---
---  Run with:  npm run db:reset      (asks you to confirm)
+--  Legacy SQL only. Never run against a hosted project; use `supabase db reset`
+--  to reset the local Supabase CLI database and reapply ordered migrations.
 -- ============================================================================
 drop view     if exists public.v_staff_queue, public.v_exam_applications, public.v_fee_clearance_summary;
 drop table    if exists public.unit_sign_log, public.unit_registrations, public.exam_unit_lecturers, public.exam_units,

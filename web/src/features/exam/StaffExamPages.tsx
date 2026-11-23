@@ -10,6 +10,10 @@ import { EXAM_STATUS, TONE } from '@/lib/constants';
 import type { Application, ExamCardStatus, ExamPeriod, FeeRecord } from '@/lib/types';
 import { cn, formatDate, formatDateTime, formatKsh } from '@/lib/utils';
 
+const yearNow = new Date().getFullYear();
+const academicYears = Array.from({ length: 11 }, (_, i) => `${yearNow - 5 + i}/${yearNow - 4 + i}`);
+const currentAcademicYear = `${yearNow}/${yearNow + 1}`;
+
 // ── Applications ─────────────────────────────────────────────
 
 export function ApplicationsPage() {
@@ -79,7 +83,17 @@ export function ApplicationsPage() {
 
 // ── Fee records ──────────────────────────────────────────────
 
-const importMeta = z.object({ academicYear: z.string().trim().regex(/^\d{4}\/\d{4}$/, 'Use the format 2026/2027'), semester: z.string().trim().min(1, 'Required') });
+const academicYear = z.string().regex(/^\d{4}\/\d{4}$/).refine((value) => {
+  const [start, end] = value.split('/').map(Number);
+  return end === start + 1;
+}, 'The end year must be one year after the start year.');
+const validDate = (value: string) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+};
+const importMeta = z.object({ academicYear, semester: z.string().trim().min(1, 'Required').max(20) });
 type ImportMeta = z.infer<typeof importMeta>;
 
 export function FeeRecordsPage() {
@@ -87,7 +101,7 @@ export function FeeRecordsPage() {
   const [search, setSearch] = useState('');
   const [parsed, setParsed] = useState<FeeImportResult | null>(null);
   const [excepting, setExcepting] = useState<FeeRecord | null>(null);
-  const { register, handleSubmit, formState: { errors } } = useForm<ImportMeta>({ resolver: zodResolver(importMeta), defaultValues: { academicYear: '2026/2027', semester: 'Semester 1' } });
+  const { register, handleSubmit, formState: { errors } } = useForm<ImportMeta>({ resolver: zodResolver(importMeta), defaultValues: { academicYear: currentAcademicYear, semester: 'Semester 1' } });
 
   const q = useQuery({ queryKey: ['fees', 'staff', search], queryFn: () => api.get<{ feeRecords: FeeRecord[] }>(`/fee-records?search=${encodeURIComponent(search)}`) });
   const refresh = () => { void qc.invalidateQueries({ queryKey: ['fees'] }); };
@@ -107,7 +121,7 @@ export function FeeRecordsPage() {
         <div className="label">Import CSV</div>
         <p className="text-xs text-ink-muted">Columns: <code>student_id, student_name, email, course, total_fee, amount_paid, payment_ref</code>. Existing rows for the same student and semester are updated.</p>
         <div className="grid gap-3 sm:grid-cols-3">
-          <Field label="Academic year" error={errors.academicYear?.message}><input className="input" {...register('academicYear')} /></Field>
+          <Field label="Academic year" error={errors.academicYear?.message}><select className="input" {...register('academicYear')}>{academicYears.map((year) => <option key={year} value={year}>{year}</option>)}</select></Field>
           <Field label="Semester" error={errors.semester?.message}><input className="input" {...register('semester')} /></Field>
           <Field label="CSV file"><input type="file" accept=".csv,text/csv" className="input" onChange={async (e) => { const f = e.target.files?.[0]; setParsed(f ? parseFeeCsv(await f.text()) : null); }} /></Field>
         </div>
@@ -158,13 +172,13 @@ export function FeeRecordsPage() {
 // ── Exam periods ─────────────────────────────────────────────
 
 const periodSchema = z.object({
-  title: z.string().trim().min(3, 'Required'),
-  academicYear: z.string().trim().regex(/^\d{4}\/\d{4}$/, 'Use the format 2026/2027'),
-  semester: z.string().trim().min(1, 'Required'),
-  applicationOpen: z.string().min(1, 'Required'),
-  applicationClose: z.string().min(1, 'Required'),
-  examStartDate: z.string().min(1, 'Required'),
-  examEndDate: z.string().min(1, 'Required'),
+  title: z.string().trim().min(3, 'Required').max(150),
+  academicYear,
+  semester: z.string().trim().min(1, 'Required').max(20),
+  applicationOpen: z.string().refine(validDate, 'Enter a real date.'),
+  applicationClose: z.string().refine(validDate, 'Enter a real date.'),
+  examStartDate: z.string().refine(validDate, 'Enter a real date.'),
+  examEndDate: z.string().refine(validDate, 'Enter a real date.'),
   minPaymentPercent: z.string().regex(/^\d{1,3}$/, 'Enter 1 to 100').refine((v) => Number(v) >= 1 && Number(v) <= 100, 'Enter 1 to 100'),
 }).refine((p) => p.applicationClose >= p.applicationOpen, { message: 'Must be on/after the open date', path: ['applicationClose'] })
   .refine((p) => p.examEndDate >= p.examStartDate, { message: 'Must be on/after the start date', path: ['examEndDate'] });
@@ -173,10 +187,13 @@ type PeriodValues = z.infer<typeof periodSchema>;
 export function ExamPeriodsPage() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['periods'], queryFn: () => api.get<{ periods: ExamPeriod[] }>('/exam-periods') });
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<PeriodValues>({ resolver: zodResolver(periodSchema), defaultValues: { minPaymentPercent: '100' } });
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<PeriodValues>({
+    resolver: zodResolver(periodSchema),
+    defaultValues: { academicYear: currentAcademicYear, minPaymentPercent: '100' },
+  });
   const create = useMutation({
     mutationFn: (v: PeriodValues) => api.post('/exam-periods', { ...v, minPaymentPercent: Number(v.minPaymentPercent), isActive: true }),
-    onSuccess: () => { reset({ minPaymentPercent: '100' }); void qc.invalidateQueries({ queryKey: ['periods'] }); },
+    onSuccess: () => { reset({ academicYear: currentAcademicYear, minPaymentPercent: '100' }); void qc.invalidateQueries({ queryKey: ['periods'] }); },
   });
   const toggle = useMutation({
     mutationFn: (p: ExamPeriod) => api.patch(`/exam-periods/${p.id}`, { isActive: !p.is_active }),
@@ -189,7 +206,7 @@ export function ExamPeriodsPage() {
         <div className="label">New exam period</div>
         <Field label="Title" error={errors.title?.message}><input className="input" {...register('title')} /></Field>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Academic year" error={errors.academicYear?.message}><input className="input" placeholder="2026/2027" {...register('academicYear')} /></Field>
+          <Field label="Academic year" error={errors.academicYear?.message}><select className="input" {...register('academicYear')}>{academicYears.map((year) => <option key={year} value={year}>{year}</option>)}</select></Field>
           <Field label="Semester" error={errors.semester?.message}><input className="input" placeholder="Semester 1" {...register('semester')} /></Field>
           <Field label="Applications open" error={errors.applicationOpen?.message}><input type="date" className="input" {...register('applicationOpen')} /></Field>
           <Field label="Applications close" error={errors.applicationClose?.message}><input type="date" className="input" {...register('applicationClose')} /></Field>

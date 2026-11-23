@@ -1,8 +1,12 @@
+process.env.EXPO_PUBLIC_API_URL = 'http://api.test:4000';
+process.env.EXPO_PUBLIC_SUPABASE_URL = 'https://example.supabase.co';
+process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
+
 // In-memory replacement for SecureStore-backed storage, shared by every test.
 const mockStore = new Map<string, string>();
 
 jest.mock('@/lib/storage', () => ({
-  KEYS: { token: 'finesse_token', serverUrl: 'finesse_server_url', theme: 'finesse_theme' },
+  KEYS: { token: 'finesse_token', theme: 'finesse_theme' },
   getItem: jest.fn(async (k: string) => mockStore.get(k) ?? null),
   setItem: jest.fn(async (k: string, v: string) => void mockStore.set(k, v)),
   removeItem: jest.fn(async (k: string) => void mockStore.delete(k)),
@@ -26,13 +30,19 @@ jest.mock('expo-camera', () => {
   };
 });
 
+type MockIdentity = {
+  id: string;
+  email?: string;
+  user_metadata?: { name?: string };
+  app_metadata?: { role?: string; must_change_password?: boolean };
+};
 type MockListener = (event: string, session: unknown) => void;
 
 // Fake Supabase client: tests decide whether a saved session exists (signedInAs) and whether a password is accepted.
 // The real client talks to the network and a keychain, neither of which exist in Jest.
 jest.mock('@/lib/supabase', () => {
   const fake = {
-    session: null as null | { access_token: string; user: { id: string } },
+    session: null as null | { access_token: string; user: MockIdentity },
     listeners: new Set<MockListener>(),
     emit(event: string) {
       fake.listeners.forEach((l) => l(event, fake.session));

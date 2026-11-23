@@ -1,6 +1,20 @@
 import { supabase } from './supabase';
 
-const BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? '';
+const configuredBase = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
+const placeholder = /your[-_ ]?|api\.example|paste[-_ ]|\[YOUR/i;
+
+if (!configuredBase || placeholder.test(configuredBase)) {
+  throw new Error('VITE_API_URL is required at build time. Set it to the HTTPS Finesse API URL.');
+}
+
+let BASE: string;
+try {
+  const parsed = new URL(configuredBase);
+  if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error();
+  BASE = configuredBase.replace(/\/+$/, '');
+} catch {
+  throw new Error('VITE_API_URL must be a valid HTTP(S) URL.');
+}
 
 export class ApiError extends Error {
   constructor(

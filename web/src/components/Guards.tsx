@@ -9,6 +9,8 @@ export function RequireAuth({ roles }: { roles?: UserRole[] }) {
   const location = useLocation();
   if (loading) return <Spinner label="Restoring session…" />;
   if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  if (user.must_change_password && location.pathname !== '/change-password') return <Navigate to="/change-password" replace />;
+  if (!user.must_change_password && location.pathname === '/change-password') return <Navigate to={homeFor(user.role)} replace />;
   if (roles && !roles.includes(user.role)) return <Navigate to={homeFor(user.role)} replace />;
   return <Outlet />;
 }
@@ -16,5 +18,5 @@ export function RequireAuth({ roles }: { roles?: UserRole[] }) {
 export function RedirectIfAuthed() {
   const { user, loading } = useAuth();
   if (loading) return <Spinner />;
-  return user ? <Navigate to={homeFor(user.role)} replace /> : <Outlet />;
+  return user ? <Navigate to={user.must_change_password ? '/change-password' : homeFor(user.role)} replace /> : <Outlet />;
 }

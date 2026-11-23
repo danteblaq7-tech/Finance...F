@@ -31,8 +31,11 @@
       "expo-asset",
       [
         "expo-camera",
-        { "cameraPermission": "Finesse uses the camera to scan student exam cards." }
-      ]
+        {
+          "cameraPermission": "Finesse uses the camera to scan student exam cards."
+        }
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "scheme": "finesse"
   }

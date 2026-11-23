@@ -7,6 +7,9 @@ import {
 import { asyncHandler, HttpError } from '../middleware/errors.js';
 import { cardState, decideSign, extractCode } from '../services/invigilation.js';
 import { supabaseAdmin } from '../supabase.js';
+import { dateSchema, uuidSchema } from '../validation.js';
+import { logger } from '../logger.js';
+import { auditStaffAction } from '../auditLog.js';
 
 // Exam-hall sign-in. Three routers:
 //   invigilationRouter  /api/invigilation   scan a card (see the student's units) and sign a unit
@@ -137,7 +140,8 @@ unitsRouter.get(
   '/mine',
   requireStudent,
   asyncHandler(async (req, res) => {
-    const period = await resolvePeriod(typeof req.query.periodId === 'string' ? req.query.periodId : undefined);
+    const { periodId } = z.object({ periodId: uuidSchema.optional() }).parse(req.query);
+    const period = await resolvePeriod(periodId);
     if (!period || !req.user.student_id) return res.json({ period, units: [] });
     const units = await query(
       `SELECT ${UNIT_COLUMNS}, r.allowed, r.block_reason, r.signed_at
@@ -156,7 +160,7 @@ unitsRouter.use(requireInvigilator);
 unitsRouter.get(
   '/',
   asyncHandler(async (req, res) => {
-    const { periodId } = z.object({ periodId: z.string().uuid().optional() }).parse(req.query);
+    const { periodId } = z.object({ periodId: uuidSchema.optional() }).parse(req.query);
     const period = await resolvePeriod(periodId);
     if (!period) return res.json({ period: null, units: [] });
     const lecturerOnly = req.user.role === 'lecturer';
@@ -182,7 +186,7 @@ const text = (max) => z.string().trim().max(max).default('');
 const unitCode = z.string().trim().min(1).max(40).transform((s) => s.toUpperCase().replace(/\s+/g, ' '));
 const studentId = z.string().trim().min(1).max(40).transform((s) => s.toUpperCase());
 const optDate = z.string().trim().default('')
-  .refine((v) => v === '' || (/^\d{4}-\d{2}-\d{2}$/.test(v) && new Date(`${v}T00:00:00Z`).toISOString().startsWith(v)), 'Use the date format YYYY-MM-DD')
+  .refine((v) => v === '' || dateSchema.safeParse(v).success, 'Use a real date in YYYY-MM-DD format')
   .transform((v) => v || null);
 const optTime = z.string().trim().default('')
   .refine((v) => v === '' || /^([01]?\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/.test(v), 'Use the time format HH:MM')
@@ -324,15 +328,16 @@ unitsRouter.put(
   asyncHandler(async (req, res) => {
     const { lecturerIds } = z.object({ lecturerIds: z.array(z.string().uuid()).max(50) }).parse(req.body);
     const ids = [...new Set(lecturerIds)];
-    if (!(await queryOne('SELECT 1 FROM exam_units WHERE id = $1', [req.params.id]))) throw new HttpError(404, 'Unit not found.');
+    const id = uuidSchema.parse(req.params.id);
+    if (!(await queryOne('SELECT 1 FROM exam_units WHERE id = $1', [id]))) throw new HttpError(404, 'Unit not found.');
     if (ids.length) {
       const ok = await query("SELECT id FROM profiles WHERE role = 'lecturer' AND id = ANY($1::uuid[])", [ids]);
       if (ok.length !== ids.length) throw new HttpError(400, 'Every selected person must be a lecturer account.');
     }
     await withTransaction(async (client) => {
-      await client.query('DELETE FROM exam_unit_lecturers WHERE exam_unit_id = $1', [req.params.id]);
+      await client.query('DELETE FROM exam_unit_lecturers WHERE exam_unit_id = $1', [id]);
       if (ids.length) {
-        await client.query('INSERT INTO exam_unit_lecturers (exam_unit_id, lecturer_id) SELECT $1, unnest($2::uuid[])', [req.params.id, ids]);
+        await client.query('INSERT INTO exam_unit_lecturers (exam_unit_id, lecturer_id) SELECT $1, unnest($2::uuid[])', [id, ids]);
       }
     });
     res.json({ ok: true });
@@ -343,7 +348,8 @@ unitsRouter.put(
 unitsRouter.get(
   '/:id/register',
   asyncHandler(async (req, res) => {
-    const unit = await queryOne(`SELECT ${UNIT_COLUMNS} FROM exam_units u WHERE u.id = $1`, [req.params.id]);
+    const id = uuidSchema.parse(req.params.id);
+    const unit = await queryOne(`SELECT ${UNIT_COLUMNS} FROM exam_units u WHERE u.id = $1`, [id]);
     if (!unit) throw new HttpError(404, 'Unit not found.');
     if (req.user.role === 'lecturer' && !(await isAssignedTo(unit.id, req.user.id))) throw new HttpError(403, 'You are not assigned to this unit.');
     const rows = await query(
@@ -371,15 +377,16 @@ unitsRouter.patch(
   requireStaff,
   asyncHandler(async (req, res) => {
     const b = z.object({ allowed: z.boolean(), reason: z.string().trim().max(300).default('') }).parse(req.body);
+    const id = uuidSchema.parse(req.params.id);
     if (!b.allowed && b.reason.length < 3) throw new HttpError(400, 'Please record why this student is barred.');
     const row = await withTransaction(async (client) => {
       const { rows } = await client.query(
         'UPDATE unit_registrations SET allowed = $2, block_reason = $3 WHERE id = $1 RETURNING id, allowed, block_reason',
-        [req.params.id, b.allowed, b.allowed ? null : b.reason],
+        [id, b.allowed, b.allowed ? null : b.reason],
       );
       if (!rows[0]) return null;
       await client.query('INSERT INTO unit_sign_log (registration_id, action, by_user, by_name, reason) VALUES ($1,$2,$3,$4,$5)',
-        [req.params.id, b.allowed ? 'allowed' : 'barred', req.user.id, req.user.name, b.reason || null]);
+        [id, b.allowed ? 'allowed' : 'barred', req.user.id, req.user.name, b.reason || null]);
       return rows[0];
     });
     if (!row) throw new HttpError(404, 'Registration not found.');
@@ -393,15 +400,16 @@ unitsRouter.post(
   requireStaff,
   asyncHandler(async (req, res) => {
     const { reason } = z.object({ reason: z.string().trim().min(5, 'Please record a reason.').max(300) }).parse(req.body);
+    const id = uuidSchema.parse(req.params.id);
     const row = await withTransaction(async (client) => {
       const { rows } = await client.query(
         `UPDATE unit_registrations SET signed_at = NULL, signed_by = NULL, signed_by_name = NULL
           WHERE id = $1 AND signed_at IS NOT NULL RETURNING id`,
-        [req.params.id],
+        [id],
       );
       if (!rows[0]) return null;
       await client.query(`INSERT INTO unit_sign_log (registration_id, action, by_user, by_name, reason) VALUES ($1,'reset',$2,$3,$4)`,
-        [req.params.id, req.user.id, req.user.name, reason]);
+        [id, req.user.id, req.user.name, reason]);
       return rows[0];
     });
     if (!row) throw new HttpError(404, 'Nothing to reset: that unit is not signed.');
@@ -414,7 +422,8 @@ unitsRouter.delete(
   '/registrations/:id',
   requireStaff,
   asyncHandler(async (req, res) => {
-    const row = await queryOne('DELETE FROM unit_registrations WHERE id = $1 AND signed_at IS NULL RETURNING id', [req.params.id]);
+    const id = uuidSchema.parse(req.params.id);
+    const row = await queryOne('DELETE FROM unit_registrations WHERE id = $1 AND signed_at IS NULL RETURNING id', [id]);
     if (!row) throw new HttpError(409, 'Not found, or already signed (reset the signature first).');
     res.json({ ok: true });
   }),
@@ -452,16 +461,35 @@ lecturersRouter.post(
       throw new HttpError(409, 'An account with this email already exists.');
     }
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
-      email: b.email, password: b.password, email_confirm: true, user_metadata: { name: b.name },
+      email: b.email,
+      password: b.password,
+      email_confirm: true,
+      user_metadata: { name: b.name },
+      app_metadata: { role: 'lecturer', must_change_password: true },
     });
     if (error) {
       if (error.code === 'email_exists' || error.code === 'user_already_exists') throw new HttpError(409, 'An account with this email already exists.');
       if (error.code === 'weak_password') throw new HttpError(400, error.message || 'That password is too weak.');
-      console.error('Supabase createUser failed:', error.code, error.message);
+      logger.error('lecturer_auth_create_failed', { errorCode: error.code });
       throw new HttpError(502, 'Could not create the account right now. Please try again.');
     }
     // The sign-up trigger always makes a 'student'; promoting is a deliberate server-side step.
-    const user = await queryOne(`UPDATE profiles SET role = 'lecturer' WHERE id = $1 RETURNING ${PUBLIC_USER_COLUMNS}`, [data.user.id]);
+    const user = await withTransaction(async (client) => {
+      const { rows: [profile] } = await client.query(
+        `UPDATE profiles SET role = 'lecturer', must_change_password = true
+         WHERE id = $1 RETURNING ${PUBLIC_USER_COLUMNS}`,
+        [data.user.id],
+      );
+      if (!profile) return null;
+      await auditStaffAction(client, {
+        actorId: req.user.id,
+        action: 'staff_account_created',
+        entityType: 'profile',
+        entityId: data.user.id,
+        metadata: { role: 'lecturer' },
+      });
+      return profile;
+    });
     if (!user) {
       await supabaseAdmin.auth.admin.deleteUser(data.user.id).catch(() => {});
       throw new HttpError(500, 'Account setup failed. Has database/supabase/schema.sql been applied? (npm run db:schema)');

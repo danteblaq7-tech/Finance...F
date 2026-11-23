@@ -4,7 +4,6 @@ import { Platform } from 'react-native';
 // Keys may only contain letters, digits, '.', '-' and '_' (SecureStore rule).
 export const KEYS = {
   token: 'finesse_token',
-  serverUrl: 'finesse_server_url',
   theme: 'finesse_theme',
 } as const;
 

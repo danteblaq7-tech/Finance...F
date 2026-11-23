@@ -12,6 +12,8 @@ import { extractPdfText } from '../pdfText.js';
 import { APP_SELECT, canReplace, loadOpenPeriod, sendRejectionEmail } from '../services/applications.js';
 import { checkOwnership, parseFeeStatement } from '../statementParser.js';
 import { saveStatementFile, statementSignedUrl } from '../storage.js';
+import { uuidSchema } from '../validation.js';
+import { logger } from '../logger.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -27,6 +29,7 @@ const uploadLimiter = rateLimit({
 
 const STATEMENT_SELECT = `SELECT s.*, u.name AS student_name, u.email AS student_email
                             FROM fee_statements s JOIN profiles u ON u.id = s.student_uid`;
+const ALLOWED_STATEMENT_MIME_TYPES = new Set(['application/pdf', 'text/csv', 'text/plain', 'image/png', 'image/jpeg']);
 
 /**
  * POST /api/fee-statements?examPeriodId=<uuid>      (students)
@@ -41,7 +44,7 @@ router.post(
   uploadLimiter,
   express.raw({ type: () => true, limit: config.maxStatementBytes }),
   asyncHandler(async (req, res) => {
-    const { examPeriodId } = z.object({ examPeriodId: z.string().uuid() }).parse(req.query);
+    const { examPeriodId } = z.object({ examPeriodId: uuidSchema }).parse(req.query);
     const user = req.user;
     if (!user.student_id) throw new HttpError(400, 'Your profile has no student ID. Contact the finance office.');
     const buffer = req.body;
@@ -49,6 +52,9 @@ router.post(
 
     const file = sniffFile(buffer);
     if (!file) throw new HttpError(415, 'That file type is not supported. Upload a PDF, CSV or a clear photo (PNG/JPG) of your fee statement.');
+    if (!ALLOWED_STATEMENT_MIME_TYPES.has(file.mime)) {
+      throw new HttpError(415, 'That file type is not supported. Upload a PDF, CSV or a clear photo (PNG/JPG) of your fee statement.');
+    }
     let fileName = 'statement';
     try { fileName = safeFileName(decodeURIComponent(req.get('x-file-name') || 'statement')); } catch { /* malformed header: keep default */ }
 
@@ -60,7 +66,7 @@ router.post(
     let text = '';
     let unreadable = false;
     if (file.kind === 'pdf') {
-      try { text = await extractPdfText(buffer); } catch (e) { console.warn('PDF text extraction failed:', e.message); unreadable = true; }
+      try { text = await extractPdfText(buffer); } catch (e) { logger.warn('statement_pdf_parse_failed', { errorCode: e.code }); unreadable = true; }
     } else if (file.kind === 'text') {
       text = buffer.toString('utf8');
     } else {
@@ -95,7 +101,7 @@ router.post(
     try {
       await saveStatementFile(filePath, buffer, file.mime);
     } catch (e) {
-      console.error('Saving the statement failed:', e.message);
+      logger.error('statement_storage_failed', { errorCode: e.code });
       throw new HttpError(502, 'Could not store your statement right now. Please try again.');
     }
 
@@ -134,7 +140,7 @@ router.post(
     });
 
     const application = await queryOne(`${APP_SELECT} WHERE a.id = $1`, [appId]);
-    if (application.status === 'rejected') await sendRejectionEmail(application, user.id).catch((e) => console.error('Rejection email failed:', e.message));
+    if (application.status === 'rejected') await sendRejectionEmail(application, user.id).catch((e) => logger.error('rejection_email_failed', { errorCode: e.code }));
     const statement = await queryOne(`${STATEMENT_SELECT} WHERE s.id = $1`, [statementId]);
     res.status(201).json({ statement, application, usedOfficialRecord: Boolean(official) });
   }),
@@ -174,12 +180,13 @@ router.get(
 router.get(
   '/:id/file',
   asyncHandler(async (req, res) => {
-    const s = await queryOne('SELECT student_uid, file_path, file_name FROM fee_statements WHERE id = $1', [req.params.id]);
+    const id = uuidSchema.parse(req.params.id);
+    const s = await queryOne('SELECT student_uid, file_path, file_name FROM fee_statements WHERE id = $1', [id]);
     if (!s || (!isStaff(req.user) && s.student_uid !== req.user.id)) throw new HttpError(404, 'Statement not found.');
     try {
       res.json({ url: await statementSignedUrl(s.file_path, 300), fileName: s.file_name, expiresInSeconds: 300 });
     } catch (e) {
-      console.error('Signing the statement link failed:', e.message);
+      logger.error('statement_signed_url_failed', { errorCode: e.code });
       throw new HttpError(502, 'Could not open the file right now. Please try again.');
     }
   }),

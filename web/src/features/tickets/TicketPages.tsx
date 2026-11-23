@@ -95,6 +95,7 @@ export function NewTicketPage() {
 function BookingPanel({ ticket }: { ticket: Ticket }) {
   const qc = useQueryClient();
   const [date, setDate] = useState<string | null>(null);
+  const [changing, setChanging] = useState(false);
   const dates = useQuery({ queryKey: ['slot-dates'], queryFn: () => api.get<{ dates: SlotDate[] }>('/slots/dates?days=14'), refetchInterval: REFRESH_MS });
   const active = date ?? dates.data?.dates.find((d) => d.free > 0)?.date ?? null;
   const slots = useQuery({
@@ -102,14 +103,25 @@ function BookingPanel({ ticket }: { ticket: Ticket }) {
     queryFn: () => api.get<{ slots: Slot[] }>(`/slots?date=${active}`),
   });
   const refresh = () => { for (const k of ['ticket', 'tickets', 'slots', 'slot-dates']) void qc.invalidateQueries({ queryKey: [k] }); };
-  const book = useMutation({ mutationFn: (slotId: string) => api.post(`/tickets/${ticket.id}/book`, { slotId }), onSuccess: refresh, onError: refresh });
+  const book = useMutation({
+    mutationFn: (slotId: string) => changing
+      ? api.patch(`/tickets/${ticket.id}/booking`, { slotId })
+      : api.post(`/tickets/${ticket.id}/book`, { slotId }),
+    onSuccess: () => { setChanging(false); refresh(); },
+    onError: refresh,
+  });
   const cancel = useMutation({ mutationFn: () => api.del(`/tickets/${ticket.id}/booking`), onSuccess: refresh });
 
-  if (ticket.appointment_slot) {
+  if (ticket.appointment_slot && !changing) {
     return (
       <div className="card flex flex-wrap items-center justify-between gap-3">
         <div><div className="label">Appointment</div><div className="font-bold">{formatDateTime(ticket.appointment_slot)}</div></div>
-        {['pending', 'in_review'].includes(ticket.status) && <Button variant="secondary" loading={cancel.isPending} onClick={() => cancel.mutate()}>Cancel appointment</Button>}
+        {['pending', 'in_review'].includes(ticket.status) && (
+          <>
+            <Button variant="secondary" onClick={() => setChanging(true)}>Change appointment</Button>
+            <Button variant="secondary" loading={cancel.isPending} onClick={() => cancel.mutate()}>Cancel appointment</Button>
+          </>
+        )}
         <ErrorNote error={cancel.error} />
       </div>
     );
@@ -117,7 +129,10 @@ function BookingPanel({ ticket }: { ticket: Ticket }) {
   if (!['pending', 'in_review'].includes(ticket.status)) return null;
   return (
     <div className="card space-y-3">
-      <div className="label">Book an in-person appointment (optional)</div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="label">{changing ? 'Choose a new appointment time' : 'Book an in-person appointment (optional)'}</div>
+        {changing && <Button variant="secondary" onClick={() => setChanging(false)}>Keep current appointment</Button>}
+      </div>
       {dates.isLoading ? <Spinner /> : !dates.data?.dates.length ? <p className="text-ink-muted">No appointment slots are available yet.</p> : (
         <>
           <div className="flex flex-wrap gap-2">
@@ -146,18 +161,43 @@ function BookingPanel({ ticket }: { ticket: Ticket }) {
 function StaffControls({ ticket }: { ticket: Ticket }) {
   const qc = useQueryClient();
   const [status, setStatus] = useState<TicketStatus>(ticket.status);
+  const [issueType, setIssueType] = useState(ticket.issue_type);
   const [priority, setPriority] = useState<TicketPriority>(ticket.priority);
-  const [notes, setNotes] = useState(ticket.staff_notes);
+  const [response, setResponse] = useState('');
   const save = useMutation({
-    mutationFn: () => api.patch(`/tickets/${ticket.id}`, { status, priority, staffNotes: notes }),
-    onSuccess: () => { for (const k of ['ticket', 'tickets']) void qc.invalidateQueries({ queryKey: [k] }); },
+    mutationFn: () => api.patch(`/tickets/${ticket.id}`, { issueType, status, priority, ...(response.trim() ? { response: response.trim() } : {}) }),
+    onSuccess: () => {
+      setResponse('');
+      for (const k of ['ticket', 'tickets']) void qc.invalidateQueries({ queryKey: [k] });
+    },
   });
   return (
     <div className="card space-y-3">
       <div className="label">Staff controls</div>
+      {ticket.classification && (
+        <div className="rounded border border-line p-3 text-sm">
+          <div className="font-bold">Classifier suggestion · {ticket.classification.provider_name}</div>
+          <p className="mt-1">{ISSUE_LABELS[ticket.classification.suggested_category] ?? ticket.classification.suggested_category} · {ticket.classification.suggested_priority}</p>
+          <p className="mt-1 text-ink-secondary">{ticket.classification.rationale}</p>
+          <p className="mt-1 text-xs text-ink-muted">{formatDateTime(ticket.classification.timestamp)}</p>
+          <Button variant="secondary" className="mt-2" onClick={() => {
+            setIssueType(ticket.classification!.suggested_category);
+            setPriority(ticket.classification!.suggested_priority);
+          }}>Use suggestion</Button>
+        </div>
+      )}
       <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Issue category">
+          <select className="input" value={issueType} onChange={(e) => setIssueType(e.target.value)}>
+            {ISSUE_TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}
+          </select>
+        </Field>
         <Field label="Status">
-          <select className="input" value={status} onChange={(e) => setStatus(e.target.value as TicketStatus)}>
+          <select className="input" value={status} onChange={(e) => {
+            const next = e.target.value as TicketStatus;
+            setStatus(next);
+            if (next === 'cancelled') setResponse('');
+          }}>
             {Object.entries(TICKET_STATUS).map(([v, s]) => <option key={v} value={v}>{s.label}</option>)}
           </select>
         </Field>
@@ -167,8 +207,8 @@ function StaffControls({ ticket }: { ticket: Ticket }) {
           </select>
         </Field>
       </div>
-      <Field label="Notes to student" hint="Shown to the student on their ticket.">
-        <textarea rows={4} className="input" value={notes} onChange={(e) => setNotes(e.target.value)} />
+      <Field label="New Finance Office response" hint="Added to the ticket history; previous responses are kept.">
+        <textarea rows={4} className="input" value={response} onChange={(e) => setResponse(e.target.value)} />
       </Field>
       <ErrorNote error={save.error} />
       <Button loading={save.isPending} onClick={() => save.mutate()}>{save.isSuccess ? 'Saved ✓' : 'Save changes'}</Button>
@@ -196,8 +236,21 @@ export function TicketDetailPage() {
       <PageHeader title={ISSUE_LABELS[t.issue_type] ?? t.issue_type} subtitle={`${t.student_name}${t.student_number ? ` · ${t.student_number}` : ''} · raised ${formatDateTime(t.created_at)}`} action={<Badge color={s.color}>{s.label}</Badge>} />
       <div className="space-y-4">
         <div className="card"><div className="label">Description</div><p className="whitespace-pre-wrap">{t.description}</p></div>
-        {!staff && t.staff_notes && <div className="card border-brand-teal-lt/50"><div className="label">Response from the finance office</div><p className="whitespace-pre-wrap">{t.staff_notes}</p></div>}
-        {staff ? <StaffControls key={t.updated_at} ticket={t} /> : <BookingPanel ticket={t} />}
+        {!!t.responses?.length && (
+          <section aria-label="Finance Office response history" className="space-y-3">
+            <div className="label">Finance Office response history</div>
+            {t.responses.map((r) => (
+              <div key={r.id} className="card border-brand-teal-lt/50">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="label">Finance Office</div>
+                  <time className="text-xs text-ink-muted">{formatDateTime(r.created_at)}</time>
+                </div>
+                <p className="mt-2 whitespace-pre-wrap">{r.body}</p>
+              </div>
+            ))}
+          </section>
+        )}
+        {staff && t.status !== 'cancelled' ? <StaffControls key={t.updated_at} ticket={t} /> : !staff && <BookingPanel ticket={t} />}
         {staff && t.appointment_slot && <div className="card"><div className="label">Appointment</div>{formatDateTime(t.appointment_slot)}</div>}
         {!staff && ['pending', 'in_review'].includes(t.status) && (
           <>

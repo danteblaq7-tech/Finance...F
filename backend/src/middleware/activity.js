@@ -1,3 +1,4 @@
+import { logger } from '../logger.js';
 import { query } from '../db.js';
 
 // "Active students" on the dashboard = students who used the app that day. Every authenticated request calls
@@ -17,6 +18,6 @@ export function trackActivity(userId) {
     [userId],
   ).catch((e) => {
     lastWrite.delete(userId);
-    console.error('Activity tracking failed:', e.message);
+    logger.error('activity_tracking_failed', { errorCode: e.code });
   });
 }

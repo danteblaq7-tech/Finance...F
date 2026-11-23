@@ -1,67 +1,25 @@
-import Constants from 'expo-constants';
-import { Platform } from 'react-native';
-import { getItem, KEYS, removeItem, setItem } from './storage';
 import { supabase } from './supabase';
 
-export const API_PORT = 4000;
 const REQUEST_TIMEOUT_MS = 15_000;
 
 const stripSlash = (u: string) => u.trim().replace(/\/+$/, '');
 
-/**
- * Where is the backend? A phone can't use "localhost" (that's the phone itself), so:
- *   1. EXPO_PUBLIC_API_URL if set (for builds), else
- *   2. the same computer that is serving this app over Expo (hostUri) on port 4000, else
- *   3. the Android emulator's alias for the host machine, else localhost (iOS simulator).
- * The user can also override it in the app (Login screen → Server).
- */
-export function defaultServerUrl(): string {
-  const fromEnv = process.env.EXPO_PUBLIC_API_URL;
-  if (fromEnv) return stripSlash(fromEnv);
-  const hostUri = Constants.expoConfig?.hostUri;
-  if (hostUri) {
-    const host = hostUri.split(':')[0];
-    if (host) return `http://${host}:${API_PORT}`;
-  }
-  return Platform.OS === 'android' ? `http://10.0.2.2:${API_PORT}` : `http://localhost:${API_PORT}`;
+const configuredBase = process.env.EXPO_PUBLIC_API_URL?.trim();
+if (!configuredBase || /your[-_ ]?|api\.example|paste[-_ ]|\[YOUR/i.test(configuredBase)) {
+  throw new Error('EXPO_PUBLIC_API_URL is required at build time. Set it to the HTTPS Finesse API URL.');
 }
 
-let baseUrl = defaultServerUrl();
+let baseUrl: string;
+try {
+  const parsed = new URL(configuredBase);
+  if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error();
+  baseUrl = stripSlash(configuredBase);
+} catch {
+  throw new Error('EXPO_PUBLIC_API_URL must be a valid HTTP(S) URL.');
+}
 let unauthorizedHandler: (() => void) | null = null;
 
 export const getServerUrl = () => baseUrl;
-
-/** Normalise and validate a user-typed server address. Returns null if it isn't usable. */
-export function normaliseServerUrl(input: string): string | null {
-  let v = input.trim();
-  if (!v) return null;
-  if (!/^https?:\/\//i.test(v)) v = `http://${v}`;
-  try {
-    const u = new URL(v);
-    if (!u.hostname) return null;
-    // No port typed on a bare host → assume the Finesse API port.
-    const withPort = u.port || /^https:/i.test(v) ? v : `${u.protocol}//${u.hostname}:${API_PORT}`;
-    return stripSlash(withPort);
-  } catch {
-    return null;
-  }
-}
-
-export async function setServerUrl(url: string | null): Promise<void> {
-  if (url) {
-    baseUrl = stripSlash(url);
-    await setItem(KEYS.serverUrl, baseUrl);
-  } else {
-    baseUrl = defaultServerUrl();
-    await removeItem(KEYS.serverUrl);
-  }
-}
-
-/** Load the saved server-address override. Call once at app start. (The sign-in session is Supabase's job.) */
-export async function initApi(): Promise<void> {
-  const saved = await getItem(KEYS.serverUrl);
-  if (saved) baseUrl = stripSlash(saved);
-}
 
 /** The current Supabase access token (supabase-js refreshes it automatically before it expires). */
 async function accessToken(): Promise<string | null> {
@@ -103,7 +61,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   } catch {
     throw new ApiError(
       0,
-      `Can't reach the server at ${baseUrl}. Make sure the backend is running and your phone is on the same Wi-Fi as your computer.`,
+      `Can't reach the configured server at ${baseUrl}. Check your internet connection and try again.`,
     );
   } finally {
     clearTimeout(timer);

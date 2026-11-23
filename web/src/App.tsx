@@ -4,6 +4,7 @@ import { RedirectIfAuthed, RequireAuth } from '@/components/Guards';
 import { Layout } from '@/components/Layout';
 import { Spinner } from '@/components/ui';
 import { LoginPage, RegisterPage } from '@/features/auth/AuthPages';
+import { ChangePasswordPage } from '@/features/auth/ChangePasswordPage';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
 import { ExamCardPage } from '@/features/exam/ExamCardPage';
@@ -11,6 +12,7 @@ import { ApplicationsPage, ExamPeriodsPage, FeeRecordsPage } from '@/features/ex
 import { ScanPage } from '@/features/invigilation/ScanPage';
 import { UnitsPage } from '@/features/invigilation/UnitsPage';
 import { SlotsPage } from '@/features/slots/SlotsPage';
+import { StaffManagementPage } from '@/features/staff/StaffManagementPage';
 import { VerifyPage } from '@/features/verify/VerifyPage';
 import { homeFor } from '@/lib/utils';
 import { MyTicketsPage, NewTicketPage, StaffQueuePage, TicketDetailPage } from '@/features/tickets/TicketPages';
@@ -35,6 +37,7 @@ export default function App() {
       </Route>
 
       <Route element={<RequireAuth />}>
+        <Route path="/change-password" element={<ChangePasswordPage />} />
         <Route element={<Layout />}>
           <Route path="/" element={<Home />} />
           <Route path="/tickets/:id" element={<TicketDetailPage />} />
@@ -59,6 +62,9 @@ export default function App() {
             <Route path="/staff/exam-periods" element={<ExamPeriodsPage />} />
             <Route path="/staff/slots" element={<SlotsPage />} />
             <Route path="/staff/templates" element={<Suspense fallback={<Spinner />}><TemplatesPage /></Suspense>} />
+          </Route>
+          <Route element={<RequireAuth roles={['admin']} />}>
+            <Route path="/staff/management" element={<StaffManagementPage />} />
           </Route>
         </Route>
       </Route>

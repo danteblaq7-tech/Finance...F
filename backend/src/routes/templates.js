@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { query, queryOne } from '../db.js';
 import { requireAuth, requireStaff } from '../middleware/auth.js';
 import { asyncHandler, HttpError } from '../middleware/errors.js';
+import { uuidSchema } from '../validation.js';
 
 const router = Router();
 router.use(requireAuth, requireStaff);
@@ -43,7 +44,8 @@ router.get(
 router.get(
   '/emails/:id',
   asyncHandler(async (req, res) => {
-    const e = await queryOne('SELECT * FROM sent_emails WHERE id = $1', [req.params.id]);
+    const id = uuidSchema.parse(req.params.id);
+    const e = await queryOne('SELECT * FROM sent_emails WHERE id = $1', [id]);
     if (!e) throw new HttpError(404, 'Email not found.');
     res.json({ email: e });
   }),

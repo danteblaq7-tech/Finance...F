@@ -1,7 +1,9 @@
 -- ============================================================================
---  FINESSE · demo data for Supabase
+--  FINESSE · local-only demo data
 --
---  Run with:  npm run db:seed     (it creates the demo LOGINS first, then runs this file)
+--  Run only with: npm run db:seed against a local Supabase CLI project.
+--  The script requires both Supabase Auth and Postgres URLs to be loopback hosts.
+--  Never apply this file to a hosted/staging/production project.
 --  Safe to re-run: every insert is skipped if the row already exists.
 --
 --  The demo accounts (created by backend/scripts/db-setup.js, all with the same password):
@@ -77,12 +79,23 @@ begin
   end if;
 
   -- Tickets -----------------------------------------------------------------
-  insert into public.tickets (id, student_id, student_name, issue_type, description, priority, status, staff_notes, assigned_staff_id, created_at) values
-  ('f0000000-0000-4000-8000-000000000001',u_brian,'Brian Kiprop','payment_plan','I have paid KSh 52,000 of my Semester 1 fees and would like to arrange instalments for the balance before exams.','high','pending','',null,'2026-10-13 10:05:00+03'),
-  ('f0000000-0000-4000-8000-000000000002',u_cynthia,'Cynthia Chebet','fee_statement','Please issue my official fee statement for the 2026/2027 academic year. It is required for a bursary application.','medium','in_review','Statement being prepared. Collect from the finance office on Friday.',u_staff,'2026-10-14 08:40:00+03'),
-  ('f0000000-0000-4000-8000-000000000003',u_amina,'Amina Hassan','helb','My HELB loan was disbursed in September but it is not reflected on my fee statement. Reference attached in my payment details.','medium','resolved','HELB credit of KSh 40,000 has been posted to your account. Thank you for your patience.',u_staff,'2026-10-05 14:20:00+03'),
-  ('f0000000-0000-4000-8000-000000000004',u_david,'David Mutua','sponsorship','I need a sponsorship letter for my clinical attachment fees to be sent to the county sponsor.','low','pending','',null,'2026-10-15 16:55:00+03')
+  insert into public.tickets (id, student_id, student_name, issue_type, description, priority, status, assigned_staff_id, created_at) values
+  ('f0000000-0000-4000-8000-000000000001',u_brian,'Brian Kiprop','payment_plan','I have paid KSh 52,000 of my Semester 1 fees and would like to arrange instalments for the balance before exams.','high','pending',null,'2026-10-13 10:05:00+03'),
+  ('f0000000-0000-4000-8000-000000000002',u_cynthia,'Cynthia Chebet','fee_statement','Please issue my official fee statement for the 2026/2027 academic year. It is required for a bursary application.','medium','in_review',u_staff,'2026-10-14 08:40:00+03'),
+  ('f0000000-0000-4000-8000-000000000003',u_amina,'Amina Hassan','helb','My HELB loan was disbursed in September but it is not reflected on my fee statement. Reference attached in my payment details.','medium','resolved',u_staff,'2026-10-05 14:20:00+03'),
+  ('f0000000-0000-4000-8000-000000000004',u_david,'David Mutua','sponsorship','I need a sponsorship letter for my clinical attachment fees to be sent to the county sponsor.','low','pending',null,'2026-10-15 16:55:00+03')
   on conflict (id) do nothing;
+
+  insert into public.ticket_responses (ticket_id, author_id, body, created_at)
+  select v.ticket_id, u_staff, v.body, v.created_at::timestamptz
+  from (values
+    ('f0000000-0000-4000-8000-000000000002'::uuid, 'Statement being prepared. Collect from the finance office on Friday.', '2026-10-14 08:40:00+03'),
+    ('f0000000-0000-4000-8000-000000000003'::uuid, 'HELB credit of KSh 40,000 has been posted to your account. Thank you for your patience.', '2026-10-05 14:20:00+03')
+  ) as v(ticket_id, body, created_at)
+  where not exists (
+    select 1 from public.ticket_responses r
+    where r.ticket_id = v.ticket_id and r.body = v.body
+  );
 
   -- Appointment slots for the next 5 days (the function skips dates already generated)
   for i in 1..5 loop
@@ -140,21 +153,28 @@ begin
       sname   := v_names[1 + (i + k) % n];
       created := ((public.app_today() - i)::timestamp + time '09:30' + (k * interval '40 minutes')) at time zone 'Africa/Nairobi';
       if i <= 2 then
-        insert into public.tickets (id, student_id, student_name, issue_type, description, priority, status, staff_notes, created_at)
+        insert into public.tickets (id, student_id, student_name, issue_type, description, priority, status, created_at)
         values (md5('demo-ticket-' || i || '-' || k)::uuid, sid, sname, 'fee_statement',
-                'Demo history: please issue my fee statement for this semester.', 'medium', 'pending', '', created)
+                'Demo history: please issue my fee statement for this semester.', 'medium', 'pending', created)
         on conflict (id) do nothing;
       else
         attended := created + interval '3 hours';
         st := case when i % 4 = 0 then 'in_review' else 'resolved' end;
-        insert into public.tickets (id, student_id, student_name, issue_type, description, priority, status, staff_notes,
+        insert into public.tickets (id, student_id, student_name, issue_type, description, priority, status,
                                     assigned_staff_id, created_at, attended_at, resolved_at, closed_at)
         values (md5('demo-ticket-' || i || '-' || k)::uuid, sid, sname, 'payment_plan',
-                'Demo history: I would like to arrange instalments for my balance.', 'medium', st, 'Handled by finance office.',
+                'Demo history: I would like to arrange instalments for my balance.', 'medium', st,
                 v_staff, created, attended,
                 case when st = 'resolved' then attended + interval '5 hours' end,
                 case when st = 'resolved' then attended + interval '5 hours' end)
         on conflict (id) do nothing;
+        insert into public.ticket_responses (ticket_id, author_id, body, created_at)
+        select md5('demo-ticket-' || i || '-' || k)::uuid, v_staff, 'Handled by finance office.', attended
+        where not exists (
+          select 1 from public.ticket_responses r
+          where r.ticket_id = md5('demo-ticket-' || i || '-' || k)::uuid
+            and r.body = 'Handled by finance office.'
+        );
       end if;
     end loop;
   end loop;

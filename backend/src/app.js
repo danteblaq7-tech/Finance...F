@@ -14,6 +14,7 @@ import { invigilationRouter, lecturersRouter, unitsRouter } from './routes/invig
 import slotRoutes from './routes/slots.js';
 import statementRoutes from './routes/statements.js';
 import statsRoutes from './routes/stats.js';
+import staffRoutes from './routes/staff.js';
 import templateRoutes from './routes/templates.js';
 import ticketRoutes from './routes/tickets.js';
 import verifyRoutes from './routes/verify.js';
@@ -35,13 +36,13 @@ export function createApp() {
   app.get('/api/health', async (_req, res) => {
     try {
       await pool.query('SELECT 1');
-      res.json({ ok: true, db: 'connected', version, env: config.nodeEnv, uptimeSeconds: Math.round(process.uptime()) });
+      res.json({ ok: true, db: 'connected', version });
     } catch {
       res.status(503).json({ ok: false, db: 'unreachable' });
     }
   });
 
-  // A generous ceiling for every other call; the sensitive routes (register, upload, verify) have their own stricter limits.
+  // A broad ceiling remains as a final safeguard; sensitive actions also have user-scoped limits.
   if (config.nodeEnv !== 'test') {
     app.use('/api', rateLimit({ windowMs: 60 * 1000, limit: 300, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Please slow down.' } }));
   }
@@ -54,6 +55,7 @@ export function createApp() {
   app.use('/api/exam-periods', periodsRouter);
   app.use('/api/applications', applicationsRouter);
   app.use('/api/stats', statsRoutes);
+  app.use('/api/admin/staff', staffRoutes);
   app.use('/api/verify', verifyRoutes);
   app.use('/api/invigilation', invigilationRouter);
   app.use('/api/exam-units', unitsRouter);

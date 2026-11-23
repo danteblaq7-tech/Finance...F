@@ -10,9 +10,13 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     strictPort: true,
-    // Keep API calls same-origin in the browser; Vite forwards them from the laptop to Express.
-    proxy: { '/api': { target: 'http://127.0.0.1:4000', changeOrigin: true } },
   },
-  build: { sourcemap: true },
-  test: { globals: true, environment: 'jsdom', setupFiles: ['./src/test/setup.ts'], css: false },
+  build: { sourcemap: false },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: ['./src/test/setup.ts'],
+    css: false,
+    env: { VITE_API_URL: 'https://finesse-api.test' },
+  },
 });

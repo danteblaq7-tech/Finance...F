@@ -1,13 +1,8 @@
 -- ============================================================================
 --  FINESSE · Campus Finance Management System
---  Supabase (PostgreSQL) schema, security policies and realtime setup
---
---  SAFE TO RE-RUN: every statement is idempotent and NOTHING here deletes data.
---
---  HOW TO APPLY (pick one)
---    A) From the project root:        npm run db:schema
---       (needs DATABASE_URL in backend/.env — see README "Supabase setup")
---    B) In the Supabase dashboard:    SQL Editor ▸ New query ▸ paste this file ▸ Run
+--  Legacy snapshot of the initial schema, now managed by Supabase CLI migrations.
+--  New projects must apply supabase/migrations/*.sql; do not paste this file into
+--  the SQL Editor or use it for subsequent schema changes.
 --
 --  Users live in Supabase Auth (auth.users). public.profiles holds the app data for
 --  each user (name, student ID, role…) and is filled automatically by a trigger.

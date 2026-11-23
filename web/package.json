@@ -11,7 +11,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "vitest run",
+    "test": "vitest run --pool=forks --maxWorkers=1 --minWorkers=1",
     "test:watch": "vitest"
   },
   "dependencies": {

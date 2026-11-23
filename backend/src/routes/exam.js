@@ -1,29 +1,29 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { bind, query, queryOne } from '../db.js';
+import { bind, query, queryOne, withTransaction } from '../db.js';
 import { isStaff, requireAuth, requireStaff, requireStudent } from '../middleware/auth.js';
 import { asyncHandler, HttpError } from '../middleware/errors.js';
 import { config } from '../config.js';
 import { renderTemplate, sendEmail } from '../mailer.js';
 import { APP_SELECT, canReplace, cardNumber, loadOpenPeriod, newVerificationCode, sendRejectionEmail } from '../services/applications.js';
+import { academicYearSchema, dateSchema, uuidSchema } from '../validation.js';
+import { auditStaffAction } from '../auditLog.js';
 
 export const periodsRouter = Router();
 export const applicationsRouter = Router();
 periodsRouter.use(requireAuth);
 applicationsRouter.use(requireAuth);
 
-const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
-
 const periodSchema = z
   .object({
     title: z.string().trim().min(3).max(150),
-    academicYear: z.string().trim().min(4).max(12),
+    academicYear: academicYearSchema,
     semester: z.string().trim().min(1).max(20),
-    examStartDate: date,
-    examEndDate: date,
-    applicationOpen: date,
-    applicationClose: date,
-    minPaymentPercent: z.number().int().min(0).max(100).default(100),
+    examStartDate: dateSchema,
+    examEndDate: dateSchema,
+    applicationOpen: dateSchema,
+    applicationClose: dateSchema,
+    minPaymentPercent: z.number().int().min(1).max(100).default(100),
     isActive: z.boolean().default(true),
   })
   .refine((p) => p.examEndDate >= p.examStartDate, { message: 'Exam end must be on/after exam start', path: ['examEndDate'] })
@@ -61,7 +61,8 @@ periodsRouter.patch(
   requireStaff,
   asyncHandler(async (req, res) => {
     const { isActive } = z.object({ isActive: z.boolean() }).parse(req.body);
-    const period = await queryOne('UPDATE exam_periods SET is_active = $1 WHERE id = $2 RETURNING *', [isActive, req.params.id]);
+    const id = uuidSchema.parse(req.params.id);
+    const period = await queryOne('UPDATE exam_periods SET is_active = $1 WHERE id = $2 RETURNING *', [isActive, id]);
     if (!period) throw new HttpError(404, 'Exam period not found.');
     res.json({ period });
   }),
@@ -76,7 +77,7 @@ async function getTemplate(key) {
 applicationsRouter.get(
   '/',
   asyncHandler(async (req, res) => {
-    const status = z.enum(['pending', 'approved', 'rejected', 'issued']).optional().parse(req.query.status);
+    const { status } = z.object({ status: z.enum(['pending', 'approved', 'rejected', 'issued']).optional() }).parse(req.query);
     const where = [];
     const params = [];
     if (!isStaff(req.user)) where.push(`a.student_uid = ${bind(params, req.user.id)}`);
@@ -128,17 +129,27 @@ applicationsRouter.post(
   requireStaff,
   asyncHandler(async (req, res) => {
     const { note } = z.object({ note: z.string().trim().min(5, 'Please record a reason.').max(1000) }).parse(req.body);
-    const app = await queryOne('SELECT id, status FROM exam_card_applications WHERE id = $1', [req.params.id]);
-    if (!app) throw new HttpError(404, 'Application not found.');
-    if (!['pending', 'rejected'].includes(app.status)) throw new HttpError(409, `Application is already ${app.status}.`);
-    await query(
-      `UPDATE exam_card_applications
-          SET status = 'approved', rejection_reason = NULL, status_note = NULL, decision_source = 'manual',
-              manually_approved_by = $1, manual_approval_note = $2
-        WHERE id = $3`,
-      [req.user.id, note, app.id],
-    );
-    res.json({ application: await queryOne(`${APP_SELECT} WHERE a.id = $1`, [app.id]) });
+    const id = uuidSchema.parse(req.params.id);
+    const appId = await withTransaction(async (client) => {
+      const { rows: [app] } = await client.query('SELECT id, status FROM exam_card_applications WHERE id = $1 FOR UPDATE', [id]);
+      if (!app) throw new HttpError(404, 'Application not found.');
+      if (!['pending', 'rejected'].includes(app.status)) throw new HttpError(409, `Application is already ${app.status}.`);
+      await client.query(
+        `UPDATE exam_card_applications
+            SET status = 'approved', rejection_reason = NULL, status_note = NULL, decision_source = 'manual',
+                manually_approved_by = $1, manual_approval_note = $2
+          WHERE id = $3`,
+        [req.user.id, note, app.id],
+      );
+      await auditStaffAction(client, {
+        actorId: req.user.id,
+        action: 'exam_card_approved',
+        entityType: 'exam_card_application',
+        entityId: app.id,
+      });
+      return app.id;
+    });
+    res.json({ application: await queryOne(`${APP_SELECT} WHERE a.id = $1`, [appId]) });
   }),
 );
 
@@ -147,7 +158,8 @@ applicationsRouter.post(
   '/:id/issue',
   requireStudent,
   asyncHandler(async (req, res) => {
-    const app = await queryOne(`${APP_SELECT} WHERE a.id = $1 AND a.student_uid = $2`, [req.params.id, req.user.id]);
+    const id = uuidSchema.parse(req.params.id);
+    const app = await queryOne(`${APP_SELECT} WHERE a.id = $1 AND a.student_uid = $2`, [id, req.user.id]);
     if (!app) throw new HttpError(404, 'Application not found.');
     if (app.status === 'issued') return res.json({ application: app });
     if (app.status !== 'approved') throw new HttpError(409, 'Only an approved application can be issued.');
@@ -181,11 +193,27 @@ applicationsRouter.post(
   requireStaff,
   asyncHandler(async (req, res) => {
     const { reason } = z.object({ reason: z.string().trim().min(5, 'Please record a reason.').max(1000) }).parse(req.body);
-    const app = await queryOne('SELECT id, status, revoked_at FROM exam_card_applications WHERE id = $1', [req.params.id]);
-    if (!app) throw new HttpError(404, 'Application not found.');
-    if (app.status !== 'issued') throw new HttpError(409, 'Only an issued card can be revoked.');
-    if (app.revoked_at) throw new HttpError(409, 'This card is already revoked.');
-    await query('UPDATE exam_card_applications SET revoked_at = now(), revoked_by = $1, revoked_reason = $2 WHERE id = $3', [req.user.id, reason, app.id]);
-    res.json({ application: await queryOne(`${APP_SELECT} WHERE a.id = $1`, [app.id]) });
+    const id = uuidSchema.parse(req.params.id);
+    const appId = await withTransaction(async (client) => {
+      const { rows: [app] } = await client.query(
+        'SELECT id, status, revoked_at FROM exam_card_applications WHERE id = $1 FOR UPDATE',
+        [id],
+      );
+      if (!app) throw new HttpError(404, 'Application not found.');
+      if (app.status !== 'issued') throw new HttpError(409, 'Only an issued card can be revoked.');
+      if (app.revoked_at) throw new HttpError(409, 'This card is already revoked.');
+      await client.query(
+        'UPDATE exam_card_applications SET revoked_at = now(), revoked_by = $1, revoked_reason = $2 WHERE id = $3',
+        [req.user.id, reason, app.id],
+      );
+      await auditStaffAction(client, {
+        actorId: req.user.id,
+        action: 'exam_card_revoked',
+        entityType: 'exam_card_application',
+        entityId: app.id,
+      });
+      return app.id;
+    });
+    res.json({ application: await queryOne(`${APP_SELECT} WHERE a.id = $1`, [appId]) });
   }),
 );

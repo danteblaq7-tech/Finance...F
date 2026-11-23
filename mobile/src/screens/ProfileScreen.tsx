@@ -11,24 +11,27 @@ import { confirmSignOut } from '@/lib/confirmSignOut';
 import { initials } from '@/lib/format';
 import { useTheme } from '@/theme/ThemeProvider';
 import { FONTS, SPACING } from '@/theme/theme';
-import { ServerSettings } from './AuthScreens';
 
 const ROLE_COLORS = { student: 'accent_green', staff: 'accent_teal_lt', admin: 'accent_purple', lecturer: 'accent_amber' } as const;
 
 const pwSchema = z
   .object({
     currentPassword: z.string().min(1, 'Required'),
-    newPassword: z.string().min(8, 'At least 8 characters'),
+    newPassword: z.string().min(8, 'At least 8 characters').max(100),
     confirm: z.string(),
   })
   .refine((v) => v.newPassword === v.confirm, { message: 'Passwords do not match', path: ['confirm'] });
 type PwValues = z.infer<typeof pwSchema>;
 
 function ChangePassword() {
+  const { refreshProfile } = useAuth();
   const { control, handleSubmit, reset } = useForm<PwValues>({ resolver: zodResolver(pwSchema), defaultValues: { currentPassword: '', newPassword: '', confirm: '' } });
   const change = useMutation({
     mutationFn: (v: PwValues) => api.post('/auth/change-password', { currentPassword: v.currentPassword, newPassword: v.newPassword }),
-    onSuccess: () => reset(),
+    onSuccess: async () => {
+      reset();
+      await refreshProfile();
+    },
   });
   return (
     <Card>
@@ -55,7 +58,7 @@ export function ProfileScreen({ notice }: { notice?: string } = {}) {
   return (
     <Screen>
       <Header title={user.role === 'student' ? 'Profile' : 'Account'} />
-      {notice ? <Card style={{ marginBottom: SPACING.md }}><AppText>{notice}</AppText></Card> : null}
+      {notice || user.must_change_password ? <Card style={{ marginBottom: SPACING.md }}><AppText>{notice ?? 'Change your temporary password to continue using Finesse.'}</AppText></Card> : null}
       <Card style={{ marginBottom: SPACING.md }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: SPACING.md }}>
           <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: colors.accent_teal, alignItems: 'center', justifyContent: 'center' }}>
@@ -78,8 +81,6 @@ export function ProfileScreen({ notice }: { notice?: string } = {}) {
       </Card>
 
       <ChangePassword />
-      <ServerSettings />
-
       <Button title="Sign out" variant="danger" style={{ marginTop: SPACING.lg }}
         onPress={() => confirmSignOut(logout)} />
     </Screen>

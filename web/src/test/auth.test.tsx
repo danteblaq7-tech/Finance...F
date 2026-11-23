@@ -7,10 +7,12 @@ import { RequireAuth } from '@/components/Guards';
 import { LoginPage } from '@/features/auth/AuthPages';
 import { AuthProvider, useAuth } from '@/features/auth/AuthProvider';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL;
+
 // A fake Supabase client: tests control the session and can see which auth calls were made.
 const sb = vi.hoisted(() => {
   const state = {
-    session: null as null | { access_token: string; user: { id: string } },
+    session: null as null | { access_token: string; user: { id: string; email?: string; user_metadata?: { name?: string }; app_metadata?: { role?: string; must_change_password?: boolean } } },
     listeners: new Set<(event: string, session: unknown) => void>(),
     emit(event: string) { state.listeners.forEach((l) => l(event, state.session)); },
     signIn: vi.fn(),
@@ -58,7 +60,10 @@ function renderApp(initial: string, extra?: React.ReactNode) {
         <AuthProvider>
           <Routes>
             <Route path="/login" element={<><LoginPage />{extra}</>} />
-            <Route element={<RequireAuth />}><Route path="/tickets" element={<div>MY TICKETS PAGE</div>} /></Route>
+            <Route element={<RequireAuth />}>
+              <Route path="/tickets" element={<div>MY TICKETS PAGE</div>} />
+              <Route path="/change-password" element={<div>FORCED PASSWORD PAGE</div>} />
+            </Route>
             <Route element={<RequireAuth roles={['staff']} />}><Route path="/staff/queue" element={<div>STAFF QUEUE</div>} /></Route>
           </Routes>
         </AuthProvider>
@@ -113,7 +118,7 @@ describe('LoginPage', () => {
     expect(await screen.findByText('MY TICKETS PAGE')).toBeInTheDocument();
     expect(sb.signIn).toHaveBeenCalledWith({ email: 'amina@students.finesse.ac.ke', password: 'Finesse@2026' });
     const [url, init] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('/api/auth/me');
+    expect(url).toBe(`${API_BASE_URL}/api/auth/me`);
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer tok-123');
   });
 
@@ -125,6 +130,27 @@ describe('LoginPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Internal server error');
     await waitFor(() => expect(sb.signOut).toHaveBeenCalled());
+  });
+
+  it('routes a forced-password account without requesting /auth/me', async () => {
+    mockFetch(() => ({ body: {} }));
+    const user = {
+      id: 'staff-1',
+      email: 'staff@example.test',
+      user_metadata: { name: 'Finance Officer' },
+      app_metadata: { role: 'staff', must_change_password: true },
+    };
+    sb.signIn.mockImplementationOnce(async () => {
+      sb.session = { access_token: 'forced-token', user };
+      sb.emit('SIGNED_IN');
+      return { data: { user, session: sb.session }, error: null };
+    });
+    renderApp('/login');
+    await userEvent.type(screen.getByLabelText('Email'), 'staff@example.test');
+    await userEvent.type(screen.getByLabelText('Password'), 'temporary-password');
+    await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
+    expect(await screen.findByText('FORCED PASSWORD PAGE')).toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 
@@ -143,8 +169,8 @@ describe('register', () => {
     renderApp('/login', <Registrar />);
     await userEvent.click(screen.getByText('do-register'));
     await waitFor(() => expect(sb.signIn).toHaveBeenCalledWith({ email: 'new@students.finesse.ac.ke', password: 'Finesse@2026' }));
-    await waitFor(() => expect(calls).toContain('GET /api/auth/me'));
-    expect(calls[0]).toBe('POST /api/auth/register'); // account first, sign-in second
+    await waitFor(() => expect(calls).toContain(`GET ${API_BASE_URL}/api/auth/me`));
+    expect(calls[0]).toBe(`POST ${API_BASE_URL}/api/auth/register`); // account first, sign-in second
   });
 });
 

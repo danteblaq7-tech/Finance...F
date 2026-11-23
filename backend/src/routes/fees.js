@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { bind, query, queryOne, withTransaction } from '../db.js';
 import { requireAuth, requireStaff } from '../middleware/auth.js';
 import { asyncHandler, HttpError } from '../middleware/errors.js';
+import { academicYearSchema, uuidSchema } from '../validation.js';
+import { auditStaffAction } from '../auditLog.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -25,7 +27,11 @@ router.get(
   '/',
   asyncHandler(async (req, res) => {
     const { academicYear, semester, search } = z
-      .object({ academicYear: z.string().optional(), semester: z.string().optional(), search: z.string().max(100).optional() })
+      .object({
+        academicYear: academicYearSchema.optional(),
+        semester: z.string().trim().min(1).max(20).optional(),
+        search: z.string().trim().max(100).optional(),
+      })
       .parse(req.query);
     const where = [];
     const params = [];
@@ -45,17 +51,17 @@ router.get(
 );
 
 const importSchema = z.object({
-  academicYear: z.string().trim().min(4).max(12),
+  academicYear: academicYearSchema,
   semester: z.string().trim().min(1).max(20),
   rows: z
     .array(
       z.object({
         student_id: z.string().trim().min(1).max(40).transform((s) => s.toUpperCase()),
         student_name: z.string().trim().max(150).default(''),
-        email: z.string().trim().max(190).default(''),
+        email: z.union([z.string().trim().email().max(190), z.literal('')]).default(''),
         course: z.string().trim().max(150).default(''),
-        total_fee: z.number().min(0),
-        amount_paid: z.number().min(0),
+        total_fee: z.number().finite().min(0),
+        amount_paid: z.number().finite().min(0),
         payment_ref: z.string().trim().max(80).default(''),
       }),
     )
@@ -98,6 +104,12 @@ router.post(
           params,
         );
       }
+      await auditStaffAction(client, {
+        actorId: req.user.id,
+        action: 'fee_records_imported',
+        entityType: 'fee_record_batch',
+        metadata: { count: unique.length, academicYear: b.academicYear, semester: b.semester },
+      });
     });
     res.status(201).json({ imported: b.rows.length });
   }),
@@ -108,11 +120,22 @@ router.post(
   '/:id/exception',
   asyncHandler(async (req, res) => {
     const { note } = z.object({ note: z.string().trim().min(5, 'Please record a reason.').max(1000) }).parse(req.body);
-    const rec = await queryOne(
-      `UPDATE fee_records SET is_cleared_for_exam = true, exception_granted_by = $1, exception_note = $2
-        WHERE id = $3 RETURNING *`,
-      [req.user.id, note, req.params.id],
-    );
+    const id = uuidSchema.parse(req.params.id);
+    const rec = await withTransaction(async (client) => {
+      const { rows: [updated] } = await client.query(
+        `UPDATE fee_records SET is_cleared_for_exam = true, exception_granted_by = $1, exception_note = $2
+          WHERE id = $3 RETURNING *`,
+        [req.user.id, note, id],
+      );
+      if (!updated) return null;
+      await auditStaffAction(client, {
+        actorId: req.user.id,
+        action: 'fee_exception_granted',
+        entityType: 'fee_record',
+        entityId: id,
+      });
+      return updated;
+    });
     if (!rec) throw new HttpError(404, 'Fee record not found.');
     res.json({ feeRecord: rec });
   }),

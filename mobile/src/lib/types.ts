@@ -5,6 +5,22 @@ export type TicketStatus = 'pending' | 'in_review' | 'resolved' | 'cancelled';
 export type TicketPriority = 'low' | 'medium' | 'high';
 export type ExamCardStatus = 'pending' | 'approved' | 'rejected' | 'issued';
 
+export interface TicketResponse {
+  id: string;
+  ticket_id: string;
+  author_id: string | null;
+  body: string;
+  created_at: string;
+}
+
+export interface TicketClassification {
+  suggested_category: string;
+  suggested_priority: TicketPriority;
+  rationale: string;
+  provider_name: string;
+  timestamp: string;
+}
+
 export interface User {
   id: string;
   name: string;
@@ -14,6 +30,7 @@ export interface User {
   course: string | null;
   year_of_study: string | null;
   role: UserRole;
+  must_change_password?: boolean;
 }
 
 export interface Ticket {
@@ -27,7 +44,8 @@ export interface Ticket {
   status: TicketStatus;
   appointment_slot: string | null;
   appointment_slot_id: string | null;
-  staff_notes: string;
+  responses?: TicketResponse[];
+  classification?: TicketClassification;
   assigned_staff_id: string | null;
   created_at: string;
   updated_at: string;

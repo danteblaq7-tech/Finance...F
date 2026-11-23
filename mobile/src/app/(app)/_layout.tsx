@@ -10,18 +10,19 @@ export default function AppLayout() {
   const { user } = useAuth();
   const { colors } = useTheme();
   if (!user) return null;
+  const mustChangePassword = Boolean(user.must_change_password);
   const staff = user.role === 'staff' || user.role === 'admin';
   const invigilator = staff || user.role === 'lecturer';
   return (
-    <Shell items={navFor(user.role)}>
+    <Shell items={mustChangePassword ? navFor(user.role).filter((item) => item.href === '/profile') : navFor(user.role)}>
       <Stack screenOptions={{ headerShown: false, animation: 'fade', contentStyle: { backgroundColor: colors.bg_secondary } }}>
-        <Stack.Protected guard={user.role === 'student'}>
+        <Stack.Protected guard={!mustChangePassword && user.role === 'student'}>
           <Stack.Screen name="tickets/index" />
           <Stack.Screen name="tickets/new" />
           <Stack.Screen name="tickets/[id]" />
           <Stack.Screen name="exam" />
         </Stack.Protected>
-        <Stack.Protected guard={staff}>
+        <Stack.Protected guard={!mustChangePassword && staff}>
           <Stack.Screen name="dashboard" />
           <Stack.Screen name="queue/index" />
           <Stack.Screen name="queue/[id]" />
@@ -30,7 +31,7 @@ export default function AppLayout() {
           <Stack.Screen name="periods" />
           <Stack.Screen name="slots" />
         </Stack.Protected>
-        <Stack.Protected guard={invigilator}>
+        <Stack.Protected guard={!mustChangePassword && invigilator}>
           <Stack.Screen name="scan" />
           <Stack.Screen name="units/index" />
           <Stack.Screen name="units/[id]" />

@@ -49,6 +49,6 @@ export async function signedInAs(role: keyof typeof users): Promise<Record<strin
 export const ticket = (over: Record<string, unknown> = {}) => ({
   id: 't1', student_id: 'u1', student_number: 'EGM/1', student_name: 'Amina Hassan', issue_type: 'fee_dispute',
   description: 'My fee statement shows a duplicate charge for September.', priority: 'medium', status: 'pending',
-  appointment_slot: null, appointment_slot_id: null, staff_notes: '', assigned_staff_id: null,
+  appointment_slot: null, appointment_slot_id: null, responses: [], assigned_staff_id: null,
   created_at: '2026-10-14 08:40:00', updated_at: '2026-10-14 08:40:00', ...over,
 });

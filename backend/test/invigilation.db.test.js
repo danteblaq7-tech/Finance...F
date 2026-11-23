@@ -1,20 +1,24 @@
 // End-to-end test of exam-hall sign-in against a REAL Postgres: real routes, real auth middleware, real SQL.
 // Only Supabase Auth is replaced by a fake (the token IS the user's id).
 //
-// It needs a SCRATCH database, not your shared Supabase project, because it creates users and exam data:
+// It needs a SCRATCH database because it creates users and exam data:
 //   1. create an empty Postgres database and add a stand-in for Supabase's auth schema:
 //        create schema auth; create table auth.users (id uuid primary key default gen_random_uuid(), email text, raw_user_meta_data jsonb default '{}');
 //        create function auth.uid() returns uuid language sql stable as $$ select null::uuid $$;
 //        create role anon nologin; create role authenticated nologin;
 //   2. apply database/supabase/schema.sql to it
 //   3. INVIGILATION_TEST_DATABASE_URL=postgres://user:pw@localhost:5432/scratch npm run test:invigilation
-// Without INVIGILATION_TEST_DATABASE_URL the whole file is skipped (so CI and `npm test` stay green).
+// When explicitly enabled, it also requires the staging integration-test gate. Without the scratch URL
+// the whole file is skipped; root `npm test` never invokes it.
 import assert from 'node:assert/strict';
 import { after, before, describe, mock, test } from 'node:test';
+import 'dotenv/config';
+import { assertStagingIntegrationTarget } from '../src/integrationTestGuard.js';
 
 const URL_ = process.env.INVIGILATION_TEST_DATABASE_URL;
 const suite = URL_ ? describe : describe.skip;
 
+if (URL_) assertStagingIntegrationTarget();
 process.env.NODE_ENV = 'test';
 if (URL_) {
   Object.assign(process.env, { SUPABASE_URL: 'https://example.supabase.co', SUPABASE_ANON_KEY: 'anon', SUPABASE_SERVICE_ROLE_KEY: 'service', DATABASE_URL: URL_ });

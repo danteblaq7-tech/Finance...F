@@ -67,10 +67,16 @@ describe('student: tickets', () => {
     alert.mockRestore();
   });
 
-  it("shows the finance office's reply to the student", async () => {
-    installFakeApi({ ...(await signedInAs('student')), 'GET /tickets/t1': { body: { ticket: ticket({ status: 'resolved', staff_notes: 'Duplicate charge reversed on 15 Oct.' }) } } });
+  it('shows the timestamped finance office response history to the student', async () => {
+    installFakeApi({ ...(await signedInAs('student')), 'GET /tickets/t1': { body: { ticket: ticket({ status: 'resolved', responses: [
+      { id: 'r1', ticket_id: 't1', author_id: 'u2', body: 'We are reviewing the transaction.', created_at: '2026-10-15 09:00:00' },
+      { id: 'r2', ticket_id: 't1', author_id: 'u2', body: 'Duplicate charge reversed on 15 Oct.', created_at: '2026-10-16 10:30:00' },
+    ] }) } } });
     await mount('/tickets/t1');
+    expect(await screen.findByText('We are reviewing the transaction.')).toBeTruthy();
     expect(await screen.findByText('Duplicate charge reversed on 15 Oct.')).toBeTruthy();
+    expect(screen.getAllByText('Finance Office')).toHaveLength(2);
+    expect(screen.getByText('Fri 16 Oct, 10:30 AM')).toBeTruthy();
     expect(screen.getByText('RESOLVED')).toBeTruthy();
   });
 });
@@ -214,8 +220,8 @@ describe('staff', () => {
     await fireEvent.press(screen.getByText('Fee Dispute'));
     expect(await screen.findByText('Staff controls')).toBeTruthy();
     await fireEvent.press(screen.getByText('IN REVIEW'));
-    await fireEvent.changeText(screen.getByLabelText('Notes to student'), 'Checking with accounts.');
+    await fireEvent.changeText(screen.getByLabelText('New Finance Office response'), 'Checking with accounts.');
     await fireEvent.press(screen.getByText('Save changes'));
-    await waitFor(() => expect(api.last('PATCH /tickets/t1')?.body).toEqual({ status: 'in_review', priority: 'medium', staffNotes: 'Checking with accounts.' }));
+    await waitFor(() => expect(api.last('PATCH /tickets/t1')?.body).toEqual({ issueType: 'fee_dispute', status: 'in_review', priority: 'medium', response: 'Checking with accounts.' }));
   });
 });

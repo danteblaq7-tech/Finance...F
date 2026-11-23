@@ -3,15 +3,25 @@ import { createClient } from '@supabase/supabase-js';
 const url = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim();
 const anonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim();
 
-const isPlaceholder = (v: string) => /your[-_ ]?(project|anon)|paste[-_ ]/i.test(v);
+const placeholder = (v: string | undefined) =>
+  !v || /your[-_ ]?(project|anon)|paste[-_ ]|\[YOUR/i.test(v);
 
-/** False until web/.env has real values. main.tsx shows a setup screen instead of a broken app. */
-export const supabaseConfigured = !!url && !!anonKey && !isPlaceholder(url) && !isPlaceholder(anonKey);
+if (placeholder(url)) {
+  throw new Error('VITE_SUPABASE_URL is required at build time. Set it to the Supabase project URL.');
+}
+if (placeholder(anonKey)) {
+  throw new Error('VITE_SUPABASE_ANON_KEY is required at build time. Set it to the Supabase anon/publishable key.');
+}
 
-// The anon/publishable key is meant to be public: what it can do is limited by the database's Row Level Security.
-// (Never put the service_role / secret key in the web app.)
-export const supabase = createClient(
-  supabaseConfigured ? url! : 'http://localhost:54321',
-  supabaseConfigured ? anonKey! : 'not-configured',
-  { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } },
-);
+try {
+  const parsed = new URL(url!);
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new Error();
+} catch {
+  throw new Error('VITE_SUPABASE_URL must be a valid HTTP(S) URL.');
+}
+
+// The anon/publishable key is public. Never put the service_role/secret key in the web app.
+export const supabaseConfigured = true;
+export const supabase = createClient(url!, anonKey!, {
+  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
+});

@@ -7,10 +7,9 @@ import { useForm } from 'react-hook-form';
 import { Pressable, View } from 'react-native';
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { z } from 'zod';
-import { FormTextField } from '@/components/forms';
-import { AppText, Button, Card, ErrorNote, Screen, TextField } from '@/components/ui';
+import { FormSelectField, FormTextField } from '@/components/forms';
+import { AppText, Button, Card, ErrorNote, Screen } from '@/components/ui';
 import { useAuth } from '@/context/AuthProvider';
-import { checkHealth, getServerUrl, normaliseServerUrl, setServerUrl } from '@/lib/api';
 import { useTheme } from '@/theme/ThemeProvider';
 import { FONTS, RADIUS, SPACING } from '@/theme/theme';
 
@@ -56,58 +55,6 @@ function Hero() {
   );
 }
 
-/** Lets the user point the app at the backend. Essential on a real phone, where "localhost" is the phone itself. */
-export function ServerSettings({ initiallyOpen = false }: { initiallyOpen?: boolean }) {
-  const [open, setOpen] = useState(initiallyOpen);
-  const [value, setValue] = useState(getServerUrl());
-  const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const { colors } = useTheme();
-
-  const parsed = normaliseServerUrl(value);
-
-  const test = async () => {
-    if (!parsed) return setStatus({ ok: false, message: 'Enter an address like 192.168.1.5:4000' });
-    setBusy(true);
-    setStatus(await checkHealth(parsed));
-    setBusy(false);
-  };
-  const save = async () => {
-    if (!parsed) return setStatus({ ok: false, message: 'Enter an address like 192.168.1.5:4000' });
-    await setServerUrl(parsed);
-    setValue(parsed);
-    setStatus({ ok: true, message: `Saved. The app will use ${parsed}.` });
-  };
-  const reset = async () => {
-    await setServerUrl(null);
-    setValue(getServerUrl());
-    setStatus({ ok: true, message: `Reset to ${getServerUrl()}.` });
-  };
-
-  if (!open) {
-    return (
-      <AppText variant="muted" style={{ textAlign: 'center', marginTop: SPACING.md }} onPress={() => setOpen(true)}>
-        Server: {getServerUrl()}  ·  <AppText variant="muted" style={{ color: colors.accent_teal_lt, textDecorationLine: 'underline' }}>change</AppText>
-      </AppText>
-    );
-  }
-  return (
-    <Card style={{ marginTop: SPACING.md }}>
-      <AppText variant="heading" style={{ marginBottom: 6 }}>Server address</AppText>
-      <AppText variant="muted" style={{ marginBottom: SPACING.md }}>
-        Your computer&apos;s Wi-Fi address and port 4000, for example 192.168.1.5:4000. Phone and computer must be on the same network.
-      </AppText>
-      <TextField label="Address" value={value} onChangeText={setValue} autoCapitalize="none" autoCorrect={false} keyboardType="url" placeholder="192.168.1.5:4000" />
-      {status ? <AppText style={{ color: status.ok ? colors.accent_green : colors.accent_red, marginBottom: SPACING.md }}>{status.message}</AppText> : null}
-      <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-        <Button title="Test" variant="secondary" loading={busy} onPress={test} />
-        <Button title="Save" onPress={save} />
-        <Button title="Reset" variant="ghost" onPress={reset} />
-      </View>
-    </Card>
-  );
-}
-
 const loginSchema = z.object({
   email: z.string().min(1, 'Email is required').email('Enter a valid email'),
   password: z.string().min(1, 'Password is required'),
@@ -148,21 +95,23 @@ export function LoginScreen() {
         <AppText variant="muted" style={{ textAlign: 'center', marginTop: SPACING.md }} onPress={() => router.push('/register')}>
           New student? <AppText variant="muted" style={{ color: colors.accent_teal_lt, textDecorationLine: 'underline' }}>Create an account</AppText>
         </AppText>
-        <ServerSettings />
       </View>
     </Screen>
   );
 }
 
+const normalizeStudentNumber = (value: string) => value.trim().toUpperCase().replace(/[\s/-]+/g, '/').replace(/^\/+|\/+$/g, '');
+
 const registerSchema = z
   .object({
-    name: z.string().trim().min(2, 'Enter your full name'),
-    studentId: z.string().trim().min(3, 'Enter your student ID (e.g. EGM/027/2024)'),
-    email: z.string().trim().email('Enter a valid email'),
-    university: z.string().optional(),
-    course: z.string().optional(),
-    yearOfStudy: z.string().optional(),
-    password: z.string().min(8, 'At least 8 characters'),
+    name: z.string().trim().min(2, 'Enter your full name').max(150),
+    studentId: z.string().trim().min(3).max(40).transform(normalizeStudentNumber)
+      .refine((value) => /^[A-Z]{2,6}\/\d{3,4}\/\d{2}$/.test(value), 'Use COURSE/072/23 (3–4 digits in the middle).'),
+    email: z.string().trim().email('Enter a valid email').max(190),
+    university: z.string().trim().max(150).optional(),
+    course: z.string().trim().max(150).optional(),
+    yearOfStudy: z.enum(['1', '2', '3', '4', '5', '6']).or(z.literal('')).optional(),
+    password: z.string().min(8, 'At least 8 characters').max(100),
     confirm: z.string(),
   })
   .refine((v) => v.password === v.confirm, { message: 'Passwords do not match', path: ['confirm'] });
@@ -199,17 +148,18 @@ export function RegisterScreen() {
       <Card>
         <AppText variant="heading" style={{ marginBottom: SPACING.md }}>Create student account</AppText>
         <FormTextField control={control} name="name" label="Full name" autoComplete="name" />
-        <FormTextField control={control} name="studentId" label="Student ID" autoCapitalize="characters" autoCorrect={false} />
+        <FormTextField control={control} name="studentId" label="Student number" hint="Format: COURSE/072/23. Spaces and dashes are converted to slashes." placeholder="COM/072/23" autoCapitalize="characters" autoCorrect={false} />
         <FormTextField control={control} name="email" label="Email" autoCapitalize="none" autoCorrect={false} keyboardType="email-address" />
         <FormTextField control={control} name="university" label="University (optional)" />
         <FormTextField control={control} name="course" label="Course (optional)" />
-        <FormTextField control={control} name="yearOfStudy" label="Year of study (optional)" keyboardType="number-pad" maxLength={1} />
+        <FormSelectField control={control} name="yearOfStudy" label="Year of study (optional)" options={[
+          { label: '—', value: '' }, ...[1, 2, 3, 4, 5, 6].map((year) => ({ label: String(year), value: String(year) })),
+        ]} />
         <FormTextField control={control} name="password" label="Password" secureTextEntry autoCapitalize="none" autoComplete="new-password" />
         <FormTextField control={control} name="confirm" label="Confirm password" secureTextEntry autoCapitalize="none" autoComplete="new-password" />
         <ErrorNote error={error} />
         <Button title="Create account" loading={busy} onPress={() => void submit()} />
       </Card>
-      <ServerSettings />
     </Screen>
   );
 }

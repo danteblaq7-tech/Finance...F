@@ -1,5 +1,6 @@
 import pg from 'pg';
 import { config } from './config.js';
+import { logger } from './logger.js';
 
 // Make Postgres values look exactly like the MySQL ones the web and mobile apps were built against:
 //   DATE / TIMESTAMP (no zone)  -> plain strings   "2026-10-17"  /  "2026-10-17 10:00:00"
@@ -30,7 +31,7 @@ export const pool = new pg.Pool({
 });
 
 // A pooled connection can be dropped by the server while idle. Don't let that crash the API.
-pool.on('error', (e) => console.error('Idle database connection error:', e.message));
+pool.on('error', (e) => logger.error('database_idle_connection_failed', { errorCode: e.code }));
 
 export const query = async (sql, params = []) => (await pool.query(sql, params)).rows;
 

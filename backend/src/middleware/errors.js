@@ -1,4 +1,5 @@
 import { ZodError } from 'zod';
+import { logger } from '../logger.js';
 
 export class HttpError extends Error {
   constructor(status, message) {
@@ -31,9 +32,9 @@ export function errorHandler(err, req, res, _next) {
   if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'Invalid JSON body' });
   // A table or column that the code expects is not in the database: the schema has not been applied since the last update.
   if (err?.code === '42P01' || err?.code === '42703') {
-    console.error(JSON.stringify({ t: new Date().toISOString(), id: req?.id, level: 'error', path: req?.originalUrl?.split('?')[0], message: err.message, hint: 'Run: npm run db:schema' }));
+    logger.error('database_schema_out_of_date', { requestId: req?.id, errorCode: err.code });
     return res.status(503).json({ error: 'The database is out of date for this feature. The project owner needs to run "npm run db:schema" once.', requestId: req?.id });
   }
-  console.error(JSON.stringify({ t: new Date().toISOString(), id: req?.id, level: 'error', path: req?.originalUrl?.split('?')[0], message: err?.message, stack: err?.stack }));
+  logger.error('request_failed', { requestId: req?.id, errorCode: err?.code });
   res.status(500).json({ error: 'Internal server error', requestId: req?.id });
 }

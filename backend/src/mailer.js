@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer';
 import { config } from './config.js';
 import { query } from './db.js';
+import { logger } from './logger.js';
 
 const transporter = config.smtp ? nodemailer.createTransport(config.smtp) : null;
 
@@ -28,7 +29,7 @@ export async function sendEmail({ type, toEmail, toName, semester, academicYear,
     await query('UPDATE sent_emails SET delivered = true WHERE id = $1', [id]);
     return { id, delivered: true };
   } catch (e) {
-    console.error('Email delivery failed:', e.message);
+    logger.error('email_delivery_failed', { errorCode: e.code });
     return { id, delivered: false };
   }
 }

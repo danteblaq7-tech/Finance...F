@@ -12,11 +12,11 @@ Check: `https://<your-api>/api/health`.
 
 Test it from the repo root: `npm run check:api -- https://<your-api>`
 
-## 2. Try it in Expo Go first (cheap, catches problems before a 15-minute build)
+## 2. Run locally in Expo Go
 ```
 cd mobile && npm install && npx expo start -c
 ```
-Phone on the same Wi-Fi, scan the QR in Expo Go. Sign in with a demo account.
+Set `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY` and `EXPO_PUBLIC_API_URL` in the git-ignored `mobile/.env` first. For a physical phone, set the API URL to the computer's LAN address, such as `http://<LAN-IP>:4000`; the phone and computer must be on the same network. Simulator/emulator users should set the reachable API URL for their setup explicitly.
 
 ## 3. Build the APK (Expo cloud build)
 ```
@@ -25,13 +25,23 @@ cd mobile
 eas login
 eas init
 ```
-`mobile/.env` is git-ignored, so the cloud build never sees it. Store the values with EAS instead (one time):
+`mobile/.env` is git-ignored, so the cloud build never sees it. Define all three required public values in the EAS `preview` environment. Recommended: use EAS environment variables (the Supabase URL, anon/publishable key and API URL are public client configuration, not secrets):
 ```
 eas env:create --environment preview --name EXPO_PUBLIC_SUPABASE_URL --value https://xxxx.supabase.co --visibility plaintext
 eas env:create --environment preview --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value <anon key> --visibility plaintext
 eas env:create --environment preview --name EXPO_PUBLIC_API_URL --value https://<your-api> --visibility plaintext
 ```
-(Never use the service_role key here. If a flag differs on your eas-cli version: `eas env:create --help`.)
+Alternatively, non-secret values can go in the selected build profile's `env` object in `eas.json`:
+```json
+"preview": {
+  "env": {
+    "EXPO_PUBLIC_SUPABASE_URL": "https://<project-ref>.supabase.co",
+    "EXPO_PUBLIC_SUPABASE_ANON_KEY": "<anon-or-publishable-key>",
+    "EXPO_PUBLIC_API_URL": "https://<api-host>"
+  }
+}
+```
+Do not put a service-role key, secret key, database password or AI-provider key in `eas.json` or any `EXPO_PUBLIC_*` variable. If a flag differs on your eas-cli version: `eas env:create --help`.
 ```
 eas build --platform android --profile preview
 ```
@@ -43,6 +53,6 @@ apply for an exam card - upload a statement - close and reopen the app (should s
 Crash? Plug in USB and run `adb logcat *:E`.
 
 ## Notes
-* Changing the API address later does not need a rebuild: sign-in screen > Server > change (https addresses only in a release build).
-* Keep the signing key EAS creates (`eas credentials`). Updates must be signed with the same key.
+* API and Supabase URL changes require a new build because the values are bundled into the app.
+* Keep a secure backup of the Android signing keystore and its password (use `eas credentials` to view/manage credentials). Store the backup separately from the repository. Losing it prevents updates to the same installed Android app.
 * Play Store needs the `production` profile (an .aab) and a Google Play developer account.

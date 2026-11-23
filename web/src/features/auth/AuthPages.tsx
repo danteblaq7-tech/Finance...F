@@ -76,7 +76,7 @@ export function LoginPage() {
     try {
       const user = await login(v.email, v.password);
       const from = (location.state as { from?: string } | null)?.from;
-      navigate(from && from !== '/login' ? from : homeFor(user.role), { replace: true });
+      navigate(user.must_change_password ? '/change-password' : from && from !== '/login' ? from : homeFor(user.role), { replace: true });
     } catch (e) {
       setError(e);
     }
@@ -101,15 +101,18 @@ export function LoginPage() {
   );
 }
 
+const normalizeStudentNumber = (value: string) => value.trim().toUpperCase().replace(/[\s/-]+/g, '/').replace(/^\/+|\/+$/g, '');
+
 const registerSchema = z
   .object({
-    name: z.string().trim().min(2, 'Enter your full name'),
-    studentId: z.string().trim().min(3, 'Enter your student ID (e.g. EGM/027/2024)'),
-    email: z.string().trim().email('Enter a valid email'),
-    university: z.string().trim().optional(),
-    course: z.string().trim().optional(),
-    yearOfStudy: z.string().optional(),
-    password: z.string().min(8, 'At least 8 characters'),
+    name: z.string().trim().min(2, 'Enter your full name').max(150),
+    studentId: z.string().trim().min(3).max(40).transform(normalizeStudentNumber)
+      .refine((value) => /^[A-Z]{2,6}\/\d{3,4}\/\d{2}$/.test(value), 'Use COURSE/072/23 (3–4 digits in the middle).'),
+    email: z.string().trim().email('Enter a valid email').max(190),
+    university: z.string().trim().max(150).optional(),
+    course: z.string().trim().max(150).optional(),
+    yearOfStudy: z.enum(['1', '2', '3', '4', '5', '6']).or(z.literal('')).optional(),
+    password: z.string().min(8, 'At least 8 characters').max(100),
     confirm: z.string(),
   })
   .refine((v) => v.password === v.confirm, { message: 'Passwords do not match', path: ['confirm'] });
@@ -135,7 +138,9 @@ export function RegisterPage() {
     <AuthShell title="Create student account">
       <form onSubmit={onSubmit} className="space-y-3" noValidate>
         <Field label="Full name" error={errors.name?.message}><input className="input" {...register('name')} /></Field>
-        <Field label="Student ID" error={errors.studentId?.message}><input className="input" {...register('studentId')} /></Field>
+        <Field label="Student number" hint="Format: COURSE/072/23. Spaces and dashes are converted to slashes." error={errors.studentId?.message}>
+          <input className="input" placeholder="COM/072/23" autoCapitalize="characters" {...register('studentId')} />
+        </Field>
         <Field label="Email" error={errors.email?.message}><input type="email" className="input" {...register('email')} /></Field>
         <Field label="University" error={errors.university?.message}><input className="input" {...register('university')} /></Field>
         <div className="grid grid-cols-3 gap-3">

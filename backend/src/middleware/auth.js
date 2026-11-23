@@ -4,7 +4,7 @@ import { trackActivity } from './activity.js';
 import { HttpError } from './errors.js';
 
 export const PUBLIC_USER_COLUMNS =
-  'id, name, email, student_id, university, course, year_of_study, role, avatar_url, created_at';
+  'id, name, email, student_id, university, course, year_of_study, role, avatar_url, created_at, must_change_password';
 
 // Asking Supabase Auth to validate a token costs a network round trip. A page load fires several API calls
 // at once with the same token, so remember "this token belongs to user X" for a few seconds.
@@ -41,8 +41,16 @@ export async function requireAuth(req, _res, next) {
     const token = header.startsWith('Bearer ') ? header.slice(7).trim() : null;
     if (!token) throw new HttpError(401, 'Not signed in.');
     const id = await userIdFromToken(token);
-    const user = await queryOne(`SELECT ${PUBLIC_USER_COLUMNS} FROM profiles WHERE id = $1`, [id]);
+    const user = await queryOne(`SELECT ${PUBLIC_USER_COLUMNS}, is_active FROM profiles WHERE id = $1`, [id]);
     if (!user) throw new HttpError(401, 'Account no longer exists.');
+    if (!user.is_active) throw new HttpError(401, 'This account has been deactivated.');
+    if (
+      user.must_change_password
+      && !(req.baseUrl === '/api/auth' && req.method === 'POST' && req.path === '/change-password')
+    ) {
+      throw new HttpError(403, 'Change your temporary password before continuing.');
+    }
+    delete user.is_active;
     req.user = user;
     trackActivity(user.id);
     next();

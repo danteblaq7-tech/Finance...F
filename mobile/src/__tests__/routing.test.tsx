@@ -55,6 +55,23 @@ describe('role-based routing (real src/app routes)', () => {
     pathMatcher().toHavePathname('/queue');
   });
 
+  it('routes a forced-password account to profile without requesting its protected profile endpoint', async () => {
+    __fake.session = {
+      access_token: 'jwt-forced',
+      user: {
+        id: 'u4',
+        email: 'admin@finesse.ac.ke',
+        user_metadata: { name: 'Admin' },
+        app_metadata: { role: 'admin', must_change_password: true },
+      },
+    };
+    fakeApi({});
+    await mountApp();
+    expect(await screen.findByText('Change password')).toBeTruthy();
+    pathMatcher().toHavePathname('/profile');
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
   it('sends a lecturer to the card scanner, never the finance staff screens', async () => {
     __fake.session = { access_token: 'jwt-lecturer', user: { id: 'u3' } };
     fakeApi({ me: lecturer });
