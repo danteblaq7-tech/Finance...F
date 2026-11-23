@@ -18,7 +18,8 @@
     "test:unit": "node --experimental-test-module-mocks --test \"test/unit/*.test.js\"",
     "test:integration": "node scripts/guard-integration-tests.js && node --test test/api.test.js",
     "test:invigilation": "node scripts/guard-integration-tests.js && node --experimental-test-module-mocks --test test/invigilation.db.test.js",
-    "test:rls": "node scripts/guard-integration-tests.js && node --test test/rls.test.js"
+    "test:rls": "node scripts/guard-integration-tests.js && node --test test/rls.test.js",
+    "seed:rls:staging": "node scripts/seed-rls-staging.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

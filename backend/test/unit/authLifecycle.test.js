@@ -12,9 +12,9 @@ mock.module(src('db.js'), {
   namedExports: {
     queryOne: async () => ({
       id: '11111111-1111-4111-8111-111111111111',
-      name: 'Staff',
-      email: 'staff@example.test',
-      role: 'staff',
+      name: 'Student',
+      email: 'student@example.test',
+      role: 'student',
       is_active: state.active,
       must_change_password: state.mustChangePassword,
     }),
@@ -40,7 +40,7 @@ async function authenticate({ token, baseUrl = '/api/tickets', path = '/', metho
   return { error, user: req.user };
 }
 
-describe('staff account authorization state', () => {
+describe('account authorization state', () => {
   test('an already-issued token is rejected on the next backend request after deactivation', async () => {
     state.active = true;
     const first = await authenticate({ token: 'still-valid-token' });

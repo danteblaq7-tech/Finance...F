@@ -33,6 +33,7 @@ const STAFF_NAV: NavItem[] = [
 ];
 
 const STAFF_MANAGEMENT_NAV: NavItem = { to: '/staff/management', label: 'Staff management', icon: Users };
+const STUDENT_ACCOUNTS_NAV: NavItem = { to: '/staff/students', label: 'Student accounts', icon: Users };
 
 export function Layout() {
   const { user, logout } = useAuth();
@@ -41,8 +42,10 @@ export function Layout() {
     : user?.role === 'lecturer'
       ? LECTURER_NAV
       : user?.role === 'admin'
-        ? [...STAFF_NAV, STAFF_MANAGEMENT_NAV]
-        : STAFF_NAV;
+        ? [...STAFF_NAV, STUDENT_ACCOUNTS_NAV, STAFF_MANAGEMENT_NAV]
+        : user?.role === 'staff'
+          ? [...STAFF_NAV, STUDENT_ACCOUNTS_NAV]
+          : STAFF_NAV;
 
   // Desktop: the sidebar fills the left edge and stays put; only the content area scrolls.
   // Phone: the sidebar becomes a strip across the top and the page scrolls normally.

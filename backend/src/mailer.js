@@ -16,12 +16,12 @@ export const renderTemplate = (tpl, vars) =>
  * Store the email in the sent_emails outbox and, when SMTP is configured, deliver it.
  * Delivery failure never throws: the outbox row stays with delivered = false so it can be retried.
  */
-export async function sendEmail({ type, toEmail, toName, semester, academicYear, cardNumber, subject, html, createdBy }) {
+export async function sendEmail({ type, toEmail, toName, semester, academicYear, cardNumber, subject, html, outboxHtml = html, createdBy }) {
   const id = crypto.randomUUID();
   await query(
     `INSERT INTO sent_emails (id, email_type, to_email, to_name, semester, academic_year, card_number, html, created_by)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-    [id, type, toEmail, toName ?? null, semester ?? null, academicYear ?? null, cardNumber ?? null, html, createdBy ?? null],
+    [id, type, toEmail, toName ?? null, semester ?? null, academicYear ?? null, cardNumber ?? null, outboxHtml, createdBy ?? null],
   );
   if (!transporter) return { id, delivered: false };
   try {

@@ -15,6 +15,7 @@ import slotRoutes from './routes/slots.js';
 import statementRoutes from './routes/statements.js';
 import statsRoutes from './routes/stats.js';
 import staffRoutes from './routes/staff.js';
+import studentRoutes from './routes/students.js';
 import templateRoutes from './routes/templates.js';
 import ticketRoutes from './routes/tickets.js';
 import verifyRoutes from './routes/verify.js';
@@ -56,6 +57,7 @@ export function createApp() {
   app.use('/api/applications', applicationsRouter);
   app.use('/api/stats', statsRoutes);
   app.use('/api/admin/staff', staffRoutes);
+  app.use('/api/admin/students', studentRoutes);
   app.use('/api/verify', verifyRoutes);
   app.use('/api/invigilation', invigilationRouter);
   app.use('/api/exam-units', unitsRouter);

@@ -397,7 +397,11 @@ $env:DOTENV_CONFIG_PATH = '.env.staging'
 $env:ALLOW_INTEGRATION_TESTS = 'staging'
 npm run test:integration
 
-# Configure UUIDs for one staging profile of each role (the last profile must be inactive):
+# Create or refresh the dedicated RLS test profiles. The script refuses all non-staging targets,
+# checks that the required migrations exist before creating users, and prints their UUIDs.
+npm run seed:rls:staging
+
+# Copy the UUIDs printed by the seeder into this PowerShell process:
 $env:RLS_TEST_STUDENT_ID = '<student-uuid>'
 $env:RLS_TEST_STAFF_ID = '<staff-uuid>'
 $env:RLS_TEST_LECTURER_ID = '<lecturer-uuid>'
@@ -428,6 +432,9 @@ validation errors add `details: [{ field, message }]`.
 | `POST /tickets/:id/book` · `DELETE /tickets/:id/booking` | owner or staff | book / cancel appointment (atomic) |
 | `GET /admin/staff` · `POST /admin/staff` | admin | list staff · create an account (returns a one-time temporary password; staff must change it) |
 | `PATCH /admin/staff/:id` | admin | assign staff/admin/lecturer role or activate/deactivate account |
+| `GET /admin/students?q=&status=&page=&pageSize=` | admin, finance staff | search paginated student account details; finance staff are read-only |
+| `PATCH /admin/students/:id` | admin | activate/deactivate a student; deactivation requires an audited reason |
+| `POST /admin/students/:id/password-reset` | admin | send a recovery email through backend SMTP; the one-time link is not stored in the outbox |
 | `GET /slots/dates` · `GET /slots?date=` | signed in | dates with free slots · slots for a day |
 | `POST /slots/generate` | staff | create 30-min slots for a date |
 | `GET /fee-records/mine` | student | own fee records |
