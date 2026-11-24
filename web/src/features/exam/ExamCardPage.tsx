@@ -156,7 +156,7 @@ function PeriodCard({ period, app, fee }: { period: ExamPeriod; app?: Applicatio
         {app?.status === 'approved' && !app.revoked_at && <Button loading={issue.isPending} onClick={() => issue.mutate()}>Generate &amp; email my card</Button>}
         {app?.status === 'issued' && !app.revoked_at && <Button variant="secondary" onClick={() => window.print()}><Printer className="h-4 w-4" /> Print card</Button>}
       </div>
-      {(canRetry && (!fee || app)) && <StatementUpload period={period} replacing={Boolean(app)} />}
+      {canRetry && <StatementUpload period={period} replacing={Boolean(app)} />}
       {app?.status === 'issued' && !app.revoked_at && <PrintableCard app={app} />}
     </div>
   );

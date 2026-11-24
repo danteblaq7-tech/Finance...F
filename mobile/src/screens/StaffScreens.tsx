@@ -14,6 +14,13 @@ import { SPACING } from '@/theme/theme';
 
 type AppFilter = ExamCardStatus | 'verify' | 'all';
 
+function applicationEligibility(a: Application) {
+  if (a.status === 'rejected' || a.statement_outcome === 'not_cleared') return { label: 'NOT ELIGIBLE', color: 'accent_red' as const };
+  if (a.status === 'approved' || a.status === 'issued') return { label: 'ELIGIBLE', color: 'accent_green' as const };
+  if (a.statement_outcome === 'cleared') return { label: 'ELIGIBLE · AWAITING VERIFICATION', color: 'accent_teal_lt' as const };
+  return { label: 'NEEDS VERIFICATION', color: 'accent_amber' as const };
+}
+
 export function ApplicationsScreen() {
   const qc = useQueryClient();
   const [filter, setFilter] = useState<AppFilter>('all');
@@ -59,6 +66,7 @@ export function ApplicationsScreen() {
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
               <AppText variant="bold">{a.student_name}</AppText>
               <Badge color={EXAM_STATUS[a.status].color}>{EXAM_STATUS[a.status].label}</Badge>
+              <Badge color={applicationEligibility(a).color}>{applicationEligibility(a).label}</Badge>
               {a.decision_source === 'statement' ? <Badge color="accent_purple">{a.manually_approved_by ? 'STATEMENT · VERIFIED' : 'UPLOADED STATEMENT'}</Badge> : null}
               {a.revoked_at ? <Badge color="text_muted">REVOKED</Badge> : null}
             </View>

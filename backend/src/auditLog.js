@@ -1,5 +1,6 @@
 const actions = new Set([
   'ticket_response_added',
+  'ticket_assignment_changed',
   'staff_account_created',
   'staff_role_changed',
   'staff_deactivated',

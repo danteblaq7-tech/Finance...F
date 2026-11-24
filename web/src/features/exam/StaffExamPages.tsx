@@ -14,6 +14,13 @@ const yearNow = new Date().getFullYear();
 const academicYears = Array.from({ length: 11 }, (_, i) => `${yearNow - 5 + i}/${yearNow - 4 + i}`);
 const currentAcademicYear = `${yearNow}/${yearNow + 1}`;
 
+function applicationEligibility(a: Application) {
+  if (a.status === 'rejected' || a.statement_outcome === 'not_cleared') return { label: 'NOT ELIGIBLE', color: TONE.red };
+  if (a.status === 'approved' || a.status === 'issued') return { label: 'ELIGIBLE', color: TONE.green };
+  if (a.statement_outcome === 'cleared') return { label: 'ELIGIBLE · AWAITING VERIFICATION', color: TONE.teal };
+  return { label: 'NEEDS VERIFICATION', color: TONE.amber };
+}
+
 // ── Applications ─────────────────────────────────────────────
 
 export function ApplicationsPage() {
@@ -52,7 +59,7 @@ export function ApplicationsPage() {
           {rows.map((a) => (
             <div key={a.id} className="card flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2"><span className="font-bold">{a.student_name}</span><Badge color={EXAM_STATUS[a.status].color}>{EXAM_STATUS[a.status].label}</Badge>{a.decision_source === 'statement' && <Badge color={TONE.purple}>{a.manually_approved_by ? 'STATEMENT · VERIFIED' : 'FROM UPLOADED STATEMENT'}</Badge>}{a.revoked_at && <Badge color={TONE.gray}>REVOKED</Badge>}</div>
+                <div className="flex flex-wrap items-center gap-2"><span className="font-bold">{a.student_name}</span><Badge color={EXAM_STATUS[a.status].color}>{EXAM_STATUS[a.status].label}</Badge><Badge color={applicationEligibility(a).color}>{applicationEligibility(a).label}</Badge>{a.decision_source === 'statement' && <Badge color={TONE.purple}>{a.manually_approved_by ? 'STATEMENT · VERIFIED' : 'FROM UPLOADED STATEMENT'}</Badge>}{a.revoked_at && <Badge color={TONE.gray}>REVOKED</Badge>}</div>
                 <div className="text-xs text-ink-muted">{a.student_id} · {a.course} · {a.period_title} · applied {formatDateTime(a.created_at)}</div>
                 <div className="text-xs">Paid {formatKsh(a.amount_paid)} of {formatKsh(a.total_fee)} · balance {formatKsh(a.balance)}</div>
                 {a.status_note && <div className="text-xs text-ink-secondary">{a.status_note}</div>}

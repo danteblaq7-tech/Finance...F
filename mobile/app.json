@@ -2,9 +2,14 @@
   "expo": {
     "name": "Finesse",
     "slug": "finesse-mobile",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/finesse.png",
+    "splash": {
+      "image": "./assets/finesse.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0B4567"
+    },
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
@@ -12,10 +17,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#0B4567",
+        "foregroundImage": "./assets/finesse.png"
       },
       "predictiveBackGestureEnabled": false,
       "package": "ke.ac.finesse.mobile"

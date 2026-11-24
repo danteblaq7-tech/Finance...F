@@ -8,18 +8,19 @@ import { dateSchema } from '../validation.js';
 const router = Router();
 router.use(requireAuth);
 
-// Dates in the next N days that still have free slots.
 router.get(
   '/dates',
   asyncHandler(async (req, res) => {
-    const days = z.coerce.number().int().min(1).max(60).default(14).parse(req.query.days);
+    const days = z.coerce.number().int().min(1).max(60).default(60).parse(req.query.days);
     const rows = await query(
       `SELECT slot_date,
-              count(*) FILTER (WHERE NOT is_booked) AS free,
-              count(*) AS total
+              count(*) FILTER (WHERE NOT is_booked AND start_time > (now() at time zone 'Africa/Nairobi')) AS free,
+              count(*) FILTER (WHERE start_time > (now() at time zone 'Africa/Nairobi')) AS total
          FROM slots
         WHERE slot_date >= app_today() AND slot_date <= app_today() + $1::int
-        GROUP BY slot_date ORDER BY slot_date`,
+        GROUP BY slot_date
+       HAVING count(*) FILTER (WHERE NOT is_booked AND start_time > (now() at time zone 'Africa/Nairobi')) > 0
+        ORDER BY slot_date`,
       [days],
     );
     res.json({ dates: rows.map((r) => ({ date: r.slot_date, free: Number(r.free), total: Number(r.total) })) });
@@ -35,8 +36,10 @@ router.get(
       `SELECT s.id, s.slot_date, s.start_time, s.end_time, s.display_time, s.is_booked,
               b.booked_by_name, b.ticket_id
          FROM slots s LEFT JOIN slot_bookings b ON b.slot_id = s.id
-        WHERE s.slot_date = $1 ORDER BY s.start_time`,
-      [date],
+        WHERE s.slot_date = $1
+          AND ($2::boolean OR s.start_time > (now() at time zone 'Africa/Nairobi'))
+        ORDER BY s.start_time`,
+      [date, isStaff(req.user)],
     );
     // Students only learn whether a slot is taken, never who took it.
     const slots = isStaff(req.user) ? rows : rows.map(({ booked_by_name: _n, ticket_id: _t, ...s }) => s);
@@ -48,8 +51,11 @@ router.post(
   '/generate',
   requireStaff,
   asyncHandler(async (req, res) => {
-    const { date } = z.object({ date: dateSchema }).parse(req.body);
-    await pool.query('SELECT generate_slots_for_date($1)', [date]);
+    const { date, startTime } = z.object({
+      date: dateSchema,
+      startTime: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/, 'Use a valid time in HH:MM format.'),
+    }).parse(req.body);
+    await pool.query('SELECT generate_slot_for_datetime($1, $2::time)', [date, startTime]);
     res.status(201).json({ ok: true });
   }),
 );

@@ -305,10 +305,10 @@ or tap the page to close it. Each role sees the same menu as on the web, in the 
 
 | Menu item | Student | Lecturer | Staff / admin |
 |---|---|---|---|
-| My Tickets / Raise Ticket | raise, list, view replies, cancel, book an appointment | | |
+| My Tickets / Raise Ticket | raise, list, view replies, cancel, choose an optional generated appointment slot while raising a ticket | | |
 | Exam Card | apply, see why rejected, the card **with its QR code and a live units checklist** | | |
 | Dashboard, Ticket Queue, Exam Applications, Fee Records | | | same as the web (manual approval, exceptions, revoke) |
-| Exam Periods, Appointment Slots | | | create / activate periods; generate slots |
+| Exam Periods, Appointment Slots | | | create / activate periods; add future 30-minute slots for a chosen date/time |
 | Scan Cards | | scan a card with the camera, sign your unit | same, any unit |
 | My Units / Exam Units | | your units and their registers | all units; bar / allow, undo a signature, add one student |
 | Account | profile, theme, password, server, sign out | same | same |
@@ -372,7 +372,7 @@ otherwise it is readable and writable by the whole internet. Add an ordered migr
 | Signed in, then bounced back to login | The API rejected the session. Check `SUPABASE_URL` matches in `backend/.env` and `web/.env`; check the `[api]` terminal for errors. |
 | Browser shows **"Cannot reach the Finesse API"** | The API isn't running. Check the `[api]` terminal and http://localhost:4000/api/health. |
 | `EADDRINUSE :4000` or `:5173` | Port in use. Stop the other process, or set `PORT` in `backend/.env` (and the proxy target in `web/vite.config.ts`). |
-| Appointment slots empty | Slots are generated for the 5 days after seeding. Staff can generate more under *Appointment Slots*. |
+| Appointment slots empty | Staff/admin must add future 30-minute slots under *Appointment Slots*; students can choose one while raising a ticket. |
 | Live updates don't arrive | Check *Database ▸ Replication* lists the tables (re-run `npm run db:schema`); the 15-second polling still keeps pages fresh meanwhile. |
 
 ## 10. Tests
@@ -426,7 +426,7 @@ validation errors add `details: [{ field, message }]`.
 | `GET /health` | anyone | API + database status |
 | `POST /auth/register` | anyone | create a **student** account (then sign in with Supabase) |
 | `GET /auth/me` · `POST /auth/change-password` | signed in | current profile (with role) · change password |
-| `GET /tickets` · `POST /tickets` | student: own · staff: all | list · raise (students only) |
+| `GET /tickets` · `POST /tickets` | student: own · staff: all | list · raise (students may reserve a future slot atomically) |
 | `GET /tickets/:id` | owner or staff | one ticket (404 for other students') |
 | `PATCH /tickets/:id` | student: cancel only · staff: status/priority/new response | update; responses append to history |
 | `POST /tickets/:id/book` · `DELETE /tickets/:id/booking` | owner or staff | book / cancel appointment (atomic) |
@@ -436,7 +436,7 @@ validation errors add `details: [{ field, message }]`.
 | `PATCH /admin/students/:id` | admin | activate/deactivate a student; deactivation requires an audited reason |
 | `POST /admin/students/:id/password-reset` | admin | send a recovery email through backend SMTP; the one-time link is not stored in the outbox |
 | `GET /slots/dates` · `GET /slots?date=` | signed in | dates with free slots · slots for a day |
-| `POST /slots/generate` | staff | create 30-min slots for a date |
+| `POST /slots/generate` | staff | add a future 30-minute slot for a selected date and start time |
 | `GET /fee-records/mine` | student | own fee records |
 | `GET /fee-records` · `POST /fee-records/import` · `POST /fee-records/:id/exception` | staff | list · bulk upsert · grant exception |
 | `GET /exam-periods` | signed in | list |
@@ -551,6 +551,8 @@ and working offline in a hall with no signal (each scan needs the server).p
 
 ## 13. Going to production
 
+The host recommendation, environment-name list, staging and smoke-test checklists, rollback plan, and first-48-hours monitoring guide are in [docs/production-launch.md](./docs/production-launch.md). The EAS APK/install guide and short privacy notice are in [mobile/BUILD_APK.md](./mobile/BUILD_APK.md).
+
 Checklist (nothing here is optional for a real deployment):
 
 * **Secrets:** `backend/.env` holds your Supabase **service-role key** and database password. It must never be committed, zipped, emailed or
@@ -563,7 +565,7 @@ Checklist (nothing here is optional for a real deployment):
 * **Input validation:** critical backend request bodies, query values, dates, academic years, and record IDs are validated server-side. The API returns a consistent `Validation failed` response with field-level details for schema errors. Web and mobile period dates use date pickers; academic years use dropdowns.
 * **Ticket classifier (F08):** rules-based classification is the default and has no external dependency. Staff see the category/priority recommendation, rationale, provider, and timestamp and can apply or override it; the classifier never changes the ticket's confirmed category/priority or resolves it. Recommendations are stored separately in `ticket_classification_recommendations`; apply the new migration before deploying this code. An optional OpenAI-compatible endpoint is enabled only when `CLASSIFIER_LLM_API_KEY`, `CLASSIFIER_LLM_URL`, and `CLASSIFIER_LLM_MODEL` are configured on the backend. The URL must be HTTPS in production; requests have a timeout and send `store: false` plus a redacted description. Only configure an endpoint whose terms/settings prohibit training on submitted content. With no key, or if classification fails/times out, ticket creation continues at the default medium priority.
 * **Audit:** the new migration creates `staff_action_audit_log` (no client grants/RLS access). API transactions record staff responses, staff account creation/role/active-state changes, fee-record import batches and exceptions, and exam-card approvals/revocations. Free-form notes, response bodies and student financial details are deliberately excluded from audit metadata.
-* **Storage:** the new migration creates the private `fee-statements` bucket (5 MiB) and owner/staff read plus owner-only insert policies. Only PDF, CSV/text and PNG/JPEG MIME types are allowed; the API sniffs file bytes as well as enforcing that allowlist. Past/booked slots are hidden from non-staff direct reads; inactive periods are limited to staff/admin. Students and lecturers see only active periods. These policies replace the previous broad `USING (true)` policies.
+* **Storage:** the new migration creates the private `fee-statements` bucket (5 MiB) and owner/staff read plus owner-only insert policies. Only PDF, CSV/text and PNG/JPEG MIME types are allowed; the API sniffs file bytes as well as enforcing that allowlist. Past, booked, and already-started slots are hidden from non-staff direct reads; inactive periods are limited to staff/admin. Students and lecturers see only active periods. These policies replace the previous broad `USING (true)` policies.
 * **Web:** `npm run build`, host `web/dist` on any static host, built with `VITE_API_URL` pointing at the API. Production source maps are disabled.
 * **Mobile:** build with EAS and `EXPO_PUBLIC_API_URL=https://…`.
 * **Backups:** Supabase's free tier has none and pauses idle projects. Use a paid plan with point-in-time recovery.

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { View } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
 import QRCode from 'react-native-qrcode-svg';
 import { Badge, Button, Card, Empty, ErrorNote, Header, Screen, Spinner, AppText } from '@/components/ui';
 import { UnitChecklist } from '@/components/UnitChecklist';
@@ -91,8 +92,6 @@ function StatementUpload({ period, replacing }: { period: ExamPeriod; replacing:
 
   const choose = async () => {
     setLocalError(null);
-    // Loaded on demand: the native picker module is only needed on this button press.
-    const DocumentPicker = await import('expo-document-picker');
     const result = await DocumentPicker.getDocumentAsync({
       type: ['application/pdf', 'text/csv', 'text/plain', 'image/png', 'image/jpeg'],
       copyToCacheDirectory: true,
@@ -187,7 +186,7 @@ function PeriodCard({ period, app, fee }: { period: ExamPeriod; app?: Applicatio
       {fee && canRetry ? <Button title={app ? 'Re-apply' : 'Apply for exam card'} loading={apply.isPending} onPress={() => apply.mutate()} /> : null}
       {!open && !app ? <AppText variant="muted">Applications are not open right now.</AppText> : null}
       {app?.status === 'approved' && !app.revoked_at ? <Button title="Generate & email my card" loading={issue.isPending} onPress={() => issue.mutate()} /> : null}
-      {canRetry && (!fee || app) ? <StatementUpload period={period} replacing={Boolean(app)} /> : null}
+      {canRetry ? <StatementUpload period={period} replacing={Boolean(app)} /> : null}
       {app?.status === 'issued' && !app.revoked_at ? <CardView app={app} /> : null}
     </Card>
   );

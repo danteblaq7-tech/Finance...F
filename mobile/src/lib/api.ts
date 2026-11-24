@@ -13,9 +13,12 @@ let baseUrl: string;
 try {
   const parsed = new URL(configuredBase);
   if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error();
+  if (!__DEV__ && parsed.protocol !== 'https:') {
+    throw new Error('EXPO_PUBLIC_API_URL must use HTTPS in release builds.');
+  }
   baseUrl = stripSlash(configuredBase);
 } catch {
-  throw new Error('EXPO_PUBLIC_API_URL must be a valid HTTP(S) URL.');
+  throw new Error('EXPO_PUBLIC_API_URL must be a valid HTTPS URL in release builds. HTTP is allowed only in local development.');
 }
 let unauthorizedHandler: (() => void) | null = null;
 

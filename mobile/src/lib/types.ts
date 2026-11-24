@@ -4,6 +4,7 @@ export type UserRole = 'student' | 'staff' | 'admin' | 'lecturer';
 export type TicketStatus = 'pending' | 'in_review' | 'resolved' | 'cancelled';
 export type TicketPriority = 'low' | 'medium' | 'high';
 export type ExamCardStatus = 'pending' | 'approved' | 'rejected' | 'issued';
+export type StatementOutcome = 'cleared' | 'not_cleared' | 'needs_review' | 'official_record';
 
 export interface TicketResponse {
   id: string;
@@ -11,6 +12,7 @@ export interface TicketResponse {
   author_id: string | null;
   body: string;
   created_at: string;
+  author_name?: string | null;
 }
 
 export interface TicketClassification {
@@ -47,6 +49,8 @@ export interface Ticket {
   responses?: TicketResponse[];
   classification?: TicketClassification;
   assigned_staff_id: string | null;
+  assigned_staff_name?: string | null;
+  attended_by_name?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -120,6 +124,7 @@ export interface Application {
   created_at: string;
   min_payment_percent: number;
   decision_source: 'fee_record' | 'statement' | 'manual';
+  statement_outcome?: StatementOutcome | null;
   status_note: string | null;
   statement_id: string | null;
   verification_code: string | null;

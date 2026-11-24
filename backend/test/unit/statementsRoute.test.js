@@ -28,11 +28,11 @@ function route(sql, params) {
   if (/INSERT INTO exam_card_applications/.test(sql)) {
     const viaStatement = /'statement'/.test(sql);
     db.apps.push(viaStatement
-      ? { id: params[0], status: params[10], rejection_reason: params[11], status_note: params[12], decision_source: 'statement', balance: params[15] }
+      ? { id: params[0], status: params[10], rejection_reason: params[11], status_note: params[12], decision_source: 'statement', total_fee: params[13], amount_paid: params[14], balance: params[15] }
       : { id: params[0], status: 'pending', decision_source: 'fee_record' });
     return null;
   }
-  if (/FROM exam_card_applications a JOIN exam_periods/.test(sql)) return { ...db.apps.find((a) => a.id === params[0]), student_name: STUDENT.name, email: STUDENT.email, semester: PERIOD.semester, academic_year: PERIOD.academic_year };
+  if (/FROM exam_card_applications a\s+JOIN exam_periods/.test(sql)) return { ...db.apps.find((a) => a.id === params[0]), student_name: STUDENT.name, email: STUDENT.email, semester: PERIOD.semester, academic_year: PERIOD.academic_year };
   if (/FROM fee_statements s JOIN profiles/.test(sql)) return db.statements.find((s) => s.id === params[0]) ?? null;
   if (/FROM email_templates/.test(sql)) return null;
   throw new Error(`Unexpected SQL in test: ${sql.slice(0, 80)}`);
@@ -102,6 +102,29 @@ describe('POST /api/fee-statements', () => {
     assert.equal(j.application.status, 'pending');
     assert.match(j.application.status_note, /verify/i);
     assert.equal(db.statements[0].outcome, 'cleared');
+  });
+
+  test('uses the exam period minimum payment percentage for eligibility', async () => {
+    const originalMinimum = PERIOD.min_payment_percent;
+    PERIOD.min_payment_percent = 70;
+    try {
+      const eligible = await (await upload(pdf(stmt('EGM/027/2024', '100,000', '70,000', '30,000')))).json();
+      assert.equal(eligible.application.status, 'pending', 'eligible figures remain pending until staff verification');
+      assert.equal(eligible.application.amount_paid, 70000);
+      assert.equal(eligible.application.total_fee, 100000);
+      assert.equal(eligible.application.balance, 30000);
+      assert.equal(db.statements[0].outcome, 'cleared');
+
+      reset();
+      const notEligible = await (await upload(pdf(stmt('EGM/027/2024', '100,000', '69,000', '31,000')))).json();
+      assert.equal(notEligible.application.status, 'rejected');
+      assert.match(notEligible.application.rejection_reason, /at least 70%/i);
+      assert.equal(notEligible.application.amount_paid, 69000);
+      assert.equal(notEligible.application.balance, 31000);
+      assert.equal(db.statements[0].outcome, 'not_cleared');
+    } finally {
+      PERIOD.min_payment_percent = originalMinimum;
+    }
   });
 
   test('"trust" mode approves a cleared statement for the right student and period', async () => {

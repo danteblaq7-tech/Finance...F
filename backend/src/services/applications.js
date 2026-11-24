@@ -4,7 +4,10 @@ import { HttpError } from '../middleware/errors.js';
 import { renderTemplate, sendEmail } from '../mailer.js';
 
 export const APP_SELECT = `SELECT a.*, p.title AS period_title, p.exam_start_date, p.exam_end_date, p.min_payment_percent
-                             FROM exam_card_applications a JOIN exam_periods p ON p.id = a.exam_period_id`;
+                             , s.outcome AS statement_outcome
+                             FROM exam_card_applications a
+                             JOIN exam_periods p ON p.id = a.exam_period_id
+                             LEFT JOIN fee_statements s ON s.id = a.statement_id`;
 
 export const cardNumber = (id) => `FC-${id.replace(/-/g, '').slice(0, 8).toUpperCase()}`;
 

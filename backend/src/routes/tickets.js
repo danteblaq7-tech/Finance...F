@@ -29,6 +29,7 @@ const createSchema = z.object({
   issueType: z.enum(ISSUE_TYPES),
   description: z.string().trim().min(10, 'Please describe the issue (at least 10 characters).').max(4000),
   priority: z.enum(['low', 'medium', 'high']).default('medium'),
+  slotId: z.string().uuid().optional(),
 });
 
 const staffUpdateSchema = z
@@ -44,9 +45,13 @@ const staffUpdateSchema = z
 const SELECT = `SELECT t.id, t.student_id, t.student_name, t.issue_type, t.description,
                        t.attachment_url, t.priority, t.status, t.appointment_slot,
                        t.appointment_slot_id, t.assigned_staff_id, t.created_at,
-                       t.updated_at, t.attended_at, t.resolved_at, t.closed_at,
-                       u.student_id AS student_number
-                FROM tickets t JOIN profiles u ON u.id = t.student_id`;
+                       t.updated_at, t.attended_at, t.attended_by, t.resolved_at, t.closed_at,
+                       u.student_id AS student_number, assigned.name AS assigned_staff_name,
+                       attendee.name AS attended_by_name
+                FROM tickets t
+                JOIN profiles u ON u.id = t.student_id
+                LEFT JOIN profiles assigned ON assigned.id = t.assigned_staff_id
+                LEFT JOIN profiles attendee ON attendee.id = t.attended_by`;
 
 async function loadTicket(id, user) {
   id = uuidSchema.parse(id);
@@ -54,10 +59,11 @@ async function loadTicket(id, user) {
   // 404 (not 403) for other students' tickets so ids can't be probed.
   if (!t || (!isStaff(user) && t.student_id !== user.id)) throw new HttpError(404, 'Ticket not found.');
   const responses = await query(
-    `SELECT id, ticket_id, author_id, body, created_at
-     FROM ticket_responses
-     WHERE ticket_id = $1
-     ORDER BY created_at ASC, id ASC`,
+    `SELECT r.id, r.ticket_id, r.author_id, r.body, r.created_at, author.name AS author_name
+     FROM ticket_responses r
+     LEFT JOIN profiles author ON author.id = r.author_id
+     WHERE r.ticket_id = $1
+     ORDER BY r.created_at ASC, r.id ASC`,
     [id],
   );
   const classification = isStaff(user)
@@ -79,11 +85,16 @@ router.get(
   ticketCreateLimiter,
   classificationLimiter,
   asyncHandler(async (req, res) => {
-    const { status } = z.object({ status: z.enum(['pending', 'in_review', 'resolved', 'cancelled']).optional() }).parse(req.query);
+    const { status, assignedTo } = z.object({
+      status: z.enum(['pending', 'in_review', 'resolved', 'cancelled']).optional(),
+      assignedTo: z.literal('me').optional(),
+    }).parse(req.query);
+    if (assignedTo && !isStaff(req.user)) throw new HttpError(403, 'Staff access only.');
     const where = [];
     const params = [];
     if (!isStaff(req.user)) where.push(`t.student_id = ${bind(params, req.user.id)}`);
     if (status) where.push(`t.status = ${bind(params, status)}`);
+    if (assignedTo) where.push(`t.assigned_staff_id = ${bind(params, req.user.id)}`);
     const rows = await query(
       `${SELECT} ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
        ORDER BY CASE t.priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, t.created_at DESC LIMIT 500`,
@@ -113,7 +124,11 @@ router.post(
          VALUES ($1,$2,$3,$4,$5)`,
         [id, classification.suggestedCategory, classification.suggestedPriority, classification.rationale, classification.providerName],
       );
+      if (b.slotId) {
+        await client.query('SELECT book_slot($1,$2,$3,$4)', [b.slotId, req.user.id, req.user.name, id]);
+      }
     });
+    if (b.slotId) notifyTicketOwner(id, 'appointment_confirmed', req.user.id);
     res.status(201).json({ ticket: await loadTicket(id, req.user) });
   }),
 );
@@ -148,6 +163,9 @@ router.patch(
     }
 
     const b = staffUpdateSchema.parse(req.body);
+    if (b.assignedStaffId !== undefined && req.user.role !== 'admin') {
+      throw new HttpError(403, 'Only admins can assign tickets.');
+    }
     if (b.status === 'cancelled' && b.response !== undefined) {
       throw new HttpError(409, 'A cancelled ticket cannot receive a response.');
     }
@@ -168,14 +186,33 @@ router.patch(
       );
       if (!locked) throw new HttpError(404, 'Ticket not found.');
       if (locked.status === 'cancelled') throw new HttpError(409, 'This ticket is cancelled and cannot be changed.');
+      if (b.assignedStaffId && b.assignedStaffId !== locked.assigned_staff_id) {
+        const { rows: [assignee] } = await client.query(
+          "SELECT role, is_active FROM profiles WHERE id = $1 FOR SHARE",
+          [b.assignedStaffId],
+        );
+        if (!assignee || assignee.role !== 'staff' || !assignee.is_active) {
+          throw new HttpError(400, 'Choose an active finance staff account.');
+        }
+      }
       if (b.status === 'cancelled' && locked.appointment_slot_id) {
         await client.query('SELECT unbook_slot($1)', [locked.appointment_slot_id]);
       }
       const updateSets = [...sets];
       const updateParams = [...params];
+      if (b.assignedStaffId !== undefined && b.assignedStaffId !== locked.assigned_staff_id) {
+        await auditStaffAction(client, {
+          actorId: req.user.id,
+          action: 'ticket_assignment_changed',
+          entityType: 'ticket',
+          entityId: ticket.id,
+          metadata: { fromStaffId: locked.assigned_staff_id, toStaffId: b.assignedStaffId },
+        });
+      }
       if (touched && b.assignedStaffId === undefined && !locked.assigned_staff_id) {
         updateSets.push(`assigned_staff_id = ${bind(updateParams, req.user.id)}`);
       }
+      if (touched) updateSets.push(`attended_by = COALESCE(attended_by, ${bind(updateParams, req.user.id)})`);
       if (updateSets.length) {
         await client.query(`UPDATE tickets SET ${updateSets.join(', ')} WHERE id = ${bind(updateParams, ticket.id)}`, updateParams);
       }

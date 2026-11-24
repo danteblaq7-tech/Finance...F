@@ -10,6 +10,7 @@ export interface TicketResponse {
   author_id: string | null;
   body: string;
   created_at: string;
+  author_name?: string | null;
 }
 
 export interface TicketClassification {
@@ -46,6 +47,8 @@ export interface Ticket {
   responses?: TicketResponse[];
   classification?: TicketClassification;
   assigned_staff_id: string | null;
+  assigned_staff_name?: string | null;
+  attended_by_name?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -120,6 +123,7 @@ export interface Application {
   min_payment_percent: number;
   /** Where the decision came from: the finance office's fee record, an uploaded statement, or a staff override. */
   decision_source: 'fee_record' | 'statement' | 'manual';
+  statement_outcome?: StatementOutcome | null;
   /** Explains a pending application (e.g. "waiting for the finance office to verify your statement"). */
   status_note: string | null;
   statement_id: string | null;

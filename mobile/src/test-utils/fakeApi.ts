@@ -37,6 +37,7 @@ export function installFakeApi(routes: Record<string, Handler>): FakeApi {
 export const users = {
   student: { id: 'u1', name: 'Amina Hassan', email: 'amina@students.finesse.ac.ke', student_id: 'EGM/1', university: 'Moi University', course: 'BSc EE', year_of_study: '2', role: 'student' },
   staff: { id: 'u2', name: 'Susan Otieno', email: 'staff@finesse.ac.ke', student_id: null, university: null, course: null, year_of_study: null, role: 'staff' },
+  admin: { id: 'u3', name: 'Grace Admin', email: 'admin@finesse.ac.ke', student_id: null, university: null, course: null, year_of_study: null, role: 'admin' },
 };
 
 /** Pretend the person already signed in earlier (token saved) and the server accepts it. */

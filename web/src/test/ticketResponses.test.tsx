@@ -25,11 +25,12 @@ describe('ticket response history', () => {
         appointment_slot: null,
         appointment_slot_id: null,
         assigned_staff_id: null,
+        attended_by_name: 'Susan Otieno',
         created_at: '2026-10-14 08:40:00',
         updated_at: '2026-10-14 08:40:00',
         responses: [
           { id: 'response-1', ticket_id: 'ticket-1', author_id: null, body: 'We are checking the charge.', created_at: '2026-10-15T09:00:00.000Z' },
-          { id: 'response-2', ticket_id: 'ticket-1', author_id: 'staff-1', body: 'The duplicate charge was reversed.', created_at: '2026-10-16T10:30:00.000Z' },
+          { id: 'response-2', ticket_id: 'ticket-1', author_id: 'staff-1', author_name: 'Susan Otieno', body: 'The duplicate charge was reversed.', created_at: '2026-10-16T10:30:00.000Z' },
         ],
       },
     });
@@ -46,7 +47,9 @@ describe('ticket response history', () => {
     const first = within(history).getByText('We are checking the charge.');
     const second = within(history).getByText('The duplicate charge was reversed.');
     expect(history.textContent!.indexOf(first.textContent!)).toBeLessThan(history.textContent!.indexOf(second.textContent!));
-    expect(within(history).getAllByText('Finance Office')).toHaveLength(2);
+    expect(within(history).getByText('Finance Office')).toBeInTheDocument();
+    expect(within(history).getByText('Susan Otieno')).toBeInTheDocument();
+    expect(screen.getByText('Attended by Susan')).toBeInTheDocument();
     expect(within(history).getAllByRole('time')).toHaveLength(2);
     expect(screen.queryByLabelText('New Finance Office response')).not.toBeInTheDocument();
   });

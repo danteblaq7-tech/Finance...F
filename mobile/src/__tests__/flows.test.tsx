@@ -1,9 +1,15 @@
 import { act, fireEvent, renderRouter, screen, waitFor } from 'expo-router/testing-library';
+import * as DocumentPicker from 'expo-document-picker';
 import { Alert } from 'react-native';
+import { api } from '@/lib/api';
 import { toDateString } from '@/lib/format';
 import { installFakeApi, signedInAs, ticket } from '@/test-utils/fakeApi';
 
 jest.mock('expo-font', () => ({ ...jest.requireActual('expo-font'), useFonts: () => [true, null] }));
+jest.mock('expo-document-picker', () => ({
+  __esModule: true,
+  getDocumentAsync: jest.fn(),
+}));
 
 const mount = (url: string) => renderRouter('./src/app', { initialUrl: url });
 const path = () => expect(screen) as unknown as { toHavePathname(p: string): void };
@@ -42,6 +48,32 @@ describe('student: tickets', () => {
     path().toHavePathname('/tickets/new1');
   });
 
+  it('lets a student choose a staff-generated appointment while raising the ticket', async () => {
+    const d = day(2);
+    const api = installFakeApi({
+      ...(await signedInAs('student')),
+      'GET /slots/dates': { body: { dates: [{ date: d, free: 1, total: 1 }] } },
+      'GET /slots?date': { body: { slots: [
+        { id: 's1', slot_date: d, start_time: `${d} 10:00:00`, end_time: `${d} 10:30:00`, display_time: '10:00 AM', is_booked: false },
+      ] } },
+      'POST /tickets': { status: 201, body: { ticket: ticket({ id: 'new1', appointment_slot_id: 's1' }) } },
+      'GET /tickets/new1': { body: { ticket: ticket({ id: 'new1', appointment_slot_id: 's1' }) } },
+    });
+    await mount('/tickets/new');
+
+    await fireEvent.press(screen.getByText('Fee Dispute'));
+    await fireEvent.changeText(screen.getByLabelText('Description'), 'I need help and would like to visit the Finance Office.');
+    await fireEvent.press(await screen.findByLabelText('Select appointment at 10:00 AM'));
+    await fireEvent.press(screen.getByText('Submit ticket'));
+
+    await waitFor(() => expect(api.last('POST /tickets')?.body).toEqual({
+      issueType: 'fee_dispute',
+      priority: 'medium',
+      description: 'I need help and would like to visit the Finance Office.',
+      slotId: 's1',
+    }));
+  });
+
   it('books an appointment slot after confirming, and surfaces a double-booking conflict', async () => {
     const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     const d = day(2);
@@ -68,14 +100,16 @@ describe('student: tickets', () => {
   });
 
   it('shows the timestamped finance office response history to the student', async () => {
-    installFakeApi({ ...(await signedInAs('student')), 'GET /tickets/t1': { body: { ticket: ticket({ status: 'resolved', responses: [
-      { id: 'r1', ticket_id: 't1', author_id: 'u2', body: 'We are reviewing the transaction.', created_at: '2026-10-15 09:00:00' },
-      { id: 'r2', ticket_id: 't1', author_id: 'u2', body: 'Duplicate charge reversed on 15 Oct.', created_at: '2026-10-16 10:30:00' },
+    installFakeApi({ ...(await signedInAs('student')), 'GET /tickets/t1': { body: { ticket: ticket({ status: 'resolved', attended_by_name: 'Susan Otieno', responses: [
+      { id: 'r1', ticket_id: 't1', author_id: null, author_name: null, body: 'We are reviewing the transaction.', created_at: '2026-10-15 09:00:00' },
+      { id: 'r2', ticket_id: 't1', author_id: 'u2', author_name: 'Susan Otieno', body: 'Duplicate charge reversed on 15 Oct.', created_at: '2026-10-16 10:30:00' },
     ] }) } } });
     await mount('/tickets/t1');
     expect(await screen.findByText('We are reviewing the transaction.')).toBeTruthy();
     expect(await screen.findByText('Duplicate charge reversed on 15 Oct.')).toBeTruthy();
-    expect(screen.getAllByText('Finance Office')).toHaveLength(2);
+    expect(screen.getByText('Finance Office')).toBeTruthy();
+    expect(screen.getByText('Susan Otieno')).toBeTruthy();
+    expect(screen.getByText('Attended by Susan')).toBeTruthy();
     expect(screen.getByText('Fri 16 Oct, 10:30 AM')).toBeTruthy();
     expect(screen.getByText('RESOLVED')).toBeTruthy();
   });
@@ -95,6 +129,7 @@ describe('student: exam card', () => {
     const api = await setup(null, { id: 'f1', academic_year: '2026/2027', semester: 'Semester 1', total_fee: 80000, amount_paid: 80000, balance: 0 });
     await mount('/exam');
     await fireEvent.press(await screen.findByText('Apply for exam card'));
+    expect(await screen.findByText('Choose statement file')).toBeTruthy();
     await waitFor(() => expect(api.last('POST /applications')?.body).toEqual({ examPeriodId: 'p1' }));
   });
 
@@ -104,6 +139,34 @@ describe('student: exam card', () => {
     expect(await screen.findByText('Upload your fee statement')).toBeTruthy();
     expect(screen.getByText('Choose statement file')).toBeTruthy();
     expect(screen.queryByText('Apply for exam card')).toBeNull();
+  });
+
+  it('uploads a selected statement from mobile during the open application window', async () => {
+    installFakeApi({
+      ...(await signedInAs('student')),
+      'GET /exam-periods': { body: { periods: [period] } },
+      'GET /applications': { body: { applications: [] } },
+      'GET /fee-records/mine': { body: { feeRecords: [] } },
+    });
+    const picker = jest.mocked(DocumentPicker.getDocumentAsync);
+    picker.mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///statement.pdf', name: 'statement.pdf', mimeType: 'application/pdf', size: 100, lastModified: 0 }],
+    });
+    const upload = jest.spyOn(api, 'upload').mockImplementation(async () => ({} as never));
+
+    try {
+      await mount('/exam');
+      await fireEvent.press(await screen.findByRole('button', { name: 'Choose statement file' }));
+      await waitFor(() => expect(upload).toHaveBeenCalledWith('/fee-statements?examPeriodId=p1', {
+        uri: 'file:///statement.pdf',
+        name: 'statement.pdf',
+        mimeType: 'application/pdf',
+      }));
+    } finally {
+      upload.mockRestore();
+      picker.mockReset();
+    }
   });
 
   it('explains a rejection with the balance and offers Re-apply', async () => {
@@ -183,6 +246,24 @@ describe('student: exam card', () => {
     expect(await screen.findByText('Applications are not open right now.')).toBeTruthy();
     expect(screen.queryByText('Apply for exam card')).toBeNull();
   });
+
+  it('lets finance staff and admins see eligibility and parsed statement amounts', async () => {
+    installFakeApi({
+      ...(await signedInAs('admin')),
+      'GET /applications': { body: { applications: [application({
+        status: 'pending',
+        decision_source: 'statement',
+        statement_outcome: 'cleared',
+        status_note: 'Waiting for finance office verification.',
+        total_fee: 100000,
+        amount_paid: 70000,
+        balance: 30000,
+      })] } },
+    });
+    await mount('/applications');
+    expect(await screen.findByText('ELIGIBLE · AWAITING VERIFICATION')).toBeTruthy();
+    expect(screen.getByText(/Paid KSh 70,000 of KSh 100,000 · balance KSh 30,000/)).toBeTruthy();
+  });
 });
 
 describe('staff', () => {
@@ -223,5 +304,29 @@ describe('staff', () => {
     await fireEvent.changeText(screen.getByLabelText('New Finance Office response'), 'Checking with accounts.');
     await fireEvent.press(screen.getByText('Save changes'));
     await waitFor(() => expect(api.last('PATCH /tickets/t1')?.body).toEqual({ issueType: 'fee_dispute', status: 'in_review', priority: 'medium', response: 'Checking with accounts.' }));
+  });
+
+  it('filters the staff queue to tickets assigned to the signed-in staff member', async () => {
+    const api = installFakeApi({
+      ...(await signedInAs('staff')),
+      'GET /tickets?assignedTo=me': { body: { tickets: [ticket({ id: 'mine', student_name: 'Assigned Student', assigned_staff_id: 'u2' })] } },
+      'GET /tickets': { body: { tickets: [ticket(), ticket({ id: 'mine', student_name: 'Assigned Student', assigned_staff_id: 'u2' })] } },
+    });
+    await mount('/queue');
+    await fireEvent.press(await screen.findByText('My tickets'));
+    expect(await screen.findByText(/Assigned Student/)).toBeTruthy();
+    await waitFor(() => expect(api.last('GET /tickets?assignedTo=me')).toBeTruthy());
+  });
+
+  it('lets an admin assign a ticket to active finance staff', async () => {
+    const api = installFakeApi({
+      ...(await signedInAs('admin')),
+      'GET /tickets/t1': { body: { ticket: ticket() } },
+      'GET /admin/staff': { body: { staff: [{ id: 'u2', name: 'Susan Otieno', role: 'staff', is_active: true }] } },
+      'PATCH /tickets/t1': { body: { ticket: ticket({ assigned_staff_id: 'u2', assigned_staff_name: 'Susan Otieno' }) } },
+    });
+    await mount('/queue/t1');
+    await fireEvent.press(await screen.findByText('Susan Otieno'));
+    await waitFor(() => expect(api.last('PATCH /tickets/t1')?.body).toEqual({ assignedStaffId: 'u2' }));
   });
 });

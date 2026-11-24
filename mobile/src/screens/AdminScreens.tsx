@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { View } from 'react-native';
 import { z } from 'zod';
@@ -94,27 +94,49 @@ export function SlotsScreen() {
   const { colors } = useTheme();
   const qc = useQueryClient();
   const [day, setDay] = useState(() => toDateString(new Date(Date.now() + 86_400_000)));
+  const [time, setTime] = useState('09:00');
+  const [now, setNow] = useState(() => new Date());
   const [showPicker, setShowPicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
   const valid = date.safeParse(day).success;
+  const [year, month, dayOfMonth] = day.split('-').map(Number);
+  const maxDay = new Date(now.getTime() + 60 * 86_400_000);
+  const selectedDateTime = new Date(year, month - 1, dayOfMonth, Number(time.slice(0, 2)), Number(time.slice(3, 5)));
+  const isFuture = valid && selectedDateTime.getTime() > now.getTime();
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
   const q = useQuery({ queryKey: ['slots', day], enabled: valid, queryFn: () => api.get<{ slots: Slot[] }>(`/slots?date=${day}`), refetchInterval: 15_000 });
   const gen = useMutation({
-    mutationFn: () => api.post('/slots/generate', { date: day }),
+    mutationFn: () => api.post('/slots/generate', { date: day, startTime: time }),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ['slots'] }); void qc.invalidateQueries({ queryKey: ['slot-dates'] }); },
   });
   return (
     <Screen onRefresh={() => void q.refetch()} refreshing={q.isRefetching}>
-      <Header title="Appointment Slots" subtitle="30-minute slots, 08:00–17:00. Generating a date that already has slots does nothing." />
+      <Header title="Appointment Slots" subtitle="Add a future 30-minute in-person slot within the next 60 days for students to choose when raising a ticket." />
       <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end' }}>
         <View style={{ flex: 1 }}>
           <Field label="Date">
             <Button title={day} variant="secondary" onPress={() => setShowPicker(true)} />
           </Field>
         </View>
-        <Button title="Generate slots" loading={gen.isPending} disabled={!valid} style={{ marginBottom: valid ? SPACING.md : 40 }} onPress={() => gen.mutate()} />
+        <View style={{ flex: 1 }}>
+          <Field label="Start time (30 minutes)">
+            <Button title={time} variant="secondary" onPress={() => setShowTimePicker(true)} />
+          </Field>
+        </View>
+        <Button title="Add slot" loading={gen.isPending} disabled={!isFuture} style={{ marginBottom: valid ? SPACING.md : 40 }} onPress={() => gen.mutate()} />
       </View>
-      {showPicker ? <DateTimePicker value={new Date(`${day}T12:00:00`)} mode="date" onChange={(event, selected) => {
+      {showPicker ? <DateTimePicker value={new Date(year, month - 1, dayOfMonth, 12)} minimumDate={now} maximumDate={maxDay} mode="date" onChange={(event, selected) => {
         setShowPicker(false);
         if (event.type === 'set' && selected) setDay(toDateString(selected));
+      }} /> : null}
+      {showTimePicker ? <DateTimePicker value={selectedDateTime} mode="time" onChange={(event, selected) => {
+        setShowTimePicker(false);
+        if (event.type === 'set' && selected) {
+          setTime(`${String(selected.getHours()).padStart(2, '0')}:${String(selected.getMinutes()).padStart(2, '0')}`);
+        }
       }} /> : null}
       <ErrorNote error={gen.error} />
       {!valid ? null : q.isLoading ? <Spinner /> : q.error ? <ErrorNote error={q.error} /> : q.data!.slots.length === 0 ? <Empty>No slots for this date yet.</Empty> : (

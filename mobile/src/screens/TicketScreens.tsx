@@ -33,6 +33,7 @@ function TicketRow({ t, staff, onPress }: { t: Ticket; staff?: boolean; onPress:
         {staff ? `${t.student_name} · ${t.student_number ?? ''} · ` : ''}
         {formatDateTime(t.created_at)}
         {t.appointment_slot ? `  ·  📅 ${formatDateTime(t.appointment_slot)}` : ''}
+        {staff && t.assigned_staff_name ? `  ·  Assigned to ${t.assigned_staff_name}` : ''}
       </AppText>
     </Card>
   );
@@ -67,13 +68,32 @@ const newTicketSchema = z.object({
 export function NewTicketScreen() {
   const router = useRouter();
   const qc = useQueryClient();
+  const { colors } = useTheme();
   const [issueType, setIssueType] = useState<string>('');
   const [priority, setPriority] = useState<TicketPriority>('medium');
+  const [appointmentDate, setAppointmentDate] = useState<string | null>(null);
+  const [appointmentSlotId, setAppointmentSlotId] = useState<string | null>(null);
   const [typeError, setTypeError] = useState<string>();
   const { control, handleSubmit } = useForm<{ description: string }>({ resolver: zodResolver(newTicketSchema), defaultValues: { description: '' } });
+  const dates = useQuery({
+    queryKey: ['slot-dates'],
+    queryFn: () => api.get<{ dates: SlotDate[] }>('/slots/dates?days=60'),
+    refetchInterval: REFRESH_MS,
+  });
+  const activeDate = appointmentDate ?? dates.data?.dates[0]?.date ?? null;
+  const slots = useQuery({
+    queryKey: ['slots', activeDate],
+    enabled: !!activeDate,
+    queryFn: () => api.get<{ slots: Slot[] }>(`/slots?date=${activeDate}`),
+    refetchInterval: REFRESH_MS,
+  });
+  const selectedSlot = slots.data?.slots.find((slot) => slot.id === appointmentSlotId);
 
   const create = useMutation({
-    mutationFn: (v: { issueType: string; priority: TicketPriority; description: string }) => api.post<{ ticket: Ticket }>('/tickets', v),
+    mutationFn: (v: { issueType: string; priority: TicketPriority; description: string }) => api.post<{ ticket: Ticket }>('/tickets', {
+      ...v,
+      ...(appointmentSlotId ? { slotId: appointmentSlotId } : {}),
+    }),
     onSuccess: (r) => {
       invalidate(qc, ['tickets']);
       router.replace(`/tickets/${r.ticket.id}`);
@@ -99,6 +119,51 @@ export function NewTicketScreen() {
           <ChipGroup<TicketPriority> options={[{ label: 'Low', value: 'low' }, { label: 'Medium', value: 'medium' }, { label: 'High', value: 'high' }]} value={priority} onChange={setPriority} />
         </Field>
         <FormTextField control={control} name="description" label="Description" multiline numberOfLines={6} placeholder="What do you need help with?" />
+        <Card>
+          <AppText variant="label">In-person appointment (optional)</AppText>
+          <AppText variant="muted" style={{ marginTop: 4, marginBottom: SPACING.sm }}>Choose an available time if you need to visit the Finance Office.</AppText>
+          {dates.isLoading ? <Spinner /> : dates.error ? <ErrorNote error={dates.error} /> : !dates.data?.dates.length ? (
+            <AppText variant="muted">No future appointment slots are available. You can still submit your ticket.</AppText>
+          ) : (
+            <>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: SPACING.xs }}>
+                {dates.data.dates.map((item) => (
+                  <Pressable
+                    key={item.date}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: item.date === activeDate }}
+                    onPress={() => {
+                      setAppointmentDate(item.date);
+                      setAppointmentSlotId(null);
+                    }}
+                    style={{ borderWidth: 1, borderRadius: RADIUS.md, paddingHorizontal: 12, paddingVertical: 8, borderColor: item.date === activeDate ? colors.border_active : colors.border, backgroundColor: item.date === activeDate ? `${colors.accent_teal}33` : colors.bg_tertiary }}
+                  >
+                    <AppText variant="bold">{formatDay(item.date)}</AppText>
+                    <AppText variant="muted">{item.free} available</AppText>
+                  </Pressable>
+                ))}
+              </ScrollView>
+              {slots.isLoading ? <Spinner /> : slots.error ? <ErrorNote error={slots.error} /> : (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: SPACING.sm }}>
+                  {slots.data?.slots.filter((slot) => !slot.is_booked).map((slot) => (
+                    <Pressable
+                      key={slot.id}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Select appointment at ${formatTime(slot.start_time)}`}
+                      accessibilityState={{ selected: appointmentSlotId === slot.id }}
+                      onPress={() => setAppointmentSlotId(appointmentSlotId === slot.id ? null : slot.id)}
+                      style={{ borderWidth: 1, borderColor: appointmentSlotId === slot.id ? colors.border_active : colors.border, borderRadius: RADIUS.sm, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: appointmentSlotId === slot.id ? `${colors.accent_teal}33` : colors.bg_tertiary }}
+                    >
+                      <AppText variant="bold">{formatTime(slot.start_time)}</AppText>
+                    </Pressable>
+                  ))}
+                  {!slots.data?.slots.some((slot) => !slot.is_booked) && <AppText variant="muted">No future times remain on this date.</AppText>}
+                </View>
+              )}
+              {selectedSlot && activeDate ? <AppText variant="muted" style={{ marginTop: SPACING.sm }}>Selected appointment: {formatDay(activeDate)} at {formatTime(selectedSlot.start_time)}</AppText> : null}
+            </>
+          )}
+        </Card>
         <ErrorNote error={create.error} />
         <Button title="Submit ticket" loading={create.isPending} onPress={submit} />
       </Card>
@@ -113,7 +178,7 @@ function BookingPanel({ ticket }: { ticket: Ticket }) {
   const qc = useQueryClient();
   const [date, setDate] = useState<string | null>(null);
   const [changing, setChanging] = useState(false);
-  const dates = useQuery({ queryKey: ['slot-dates'], queryFn: () => api.get<{ dates: SlotDate[] }>('/slots/dates?days=14'), refetchInterval: REFRESH_MS });
+  const dates = useQuery({ queryKey: ['slot-dates'], queryFn: () => api.get<{ dates: SlotDate[] }>('/slots/dates?days=60'), refetchInterval: REFRESH_MS });
   const active = date ?? dates.data?.dates.find((d) => d.free > 0)?.date ?? null;
   const slots = useQuery({
     queryKey: ['slots', active], enabled: !!active, refetchInterval: REFRESH_MS,
@@ -235,6 +300,39 @@ function StaffControls({ ticket }: { ticket: Ticket }) {
   );
 }
 
+function AdminAssignmentControl({ ticket }: { ticket: Ticket }) {
+  const qc = useQueryClient();
+  const staff = useQuery({
+    queryKey: ['admin-staff', 'ticket-assignment'],
+    queryFn: () => api.get<{ staff: { id: string; name: string; role: string; is_active: boolean }[] }>('/admin/staff'),
+  });
+  const assign = useMutation({
+    mutationFn: (assignedStaffId: string | null) => api.patch(`/tickets/${ticket.id}`, { assignedStaffId }),
+    onSuccess: () => invalidate(qc, ['ticket', 'tickets']),
+  });
+  const available = staff.data?.staff.filter((person) => person.role === 'staff' && person.is_active) ?? [];
+  const current = staff.data?.staff.find((person) => person.id === ticket.assigned_staff_id);
+  const options = current && !available.some((person) => person.id === current.id) ? [current, ...available] : available;
+  const disabled = options.filter((person) => !person.is_active || person.role !== 'staff').map((person) => person.id);
+
+  return (
+    <Card>
+      <Field label="Assigned finance staff">
+        <ChipGroup<string>
+          options={[{ label: 'Unassigned', value: '' }, ...options.map((person) => ({
+            label: `${person.name}${person.is_active ? '' : ' (inactive)'}`,
+            value: person.id,
+          }))]}
+          value={ticket.assigned_staff_id ?? ''}
+          disabledValues={disabled}
+          onChange={(value) => assign.mutate(value || null)}
+        />
+      </Field>
+      <ErrorNote error={staff.error ?? assign.error} />
+    </Card>
+  );
+}
+
 // ── Ticket detail (students and staff) ───────────────────────
 
 export function TicketDetailScreen() {
@@ -269,7 +367,7 @@ export function TicketDetailScreen() {
             <AppText variant="label">Finance Office response history</AppText>
             {t.responses.map((r) => (
               <Card key={r.id}>
-                <AppText variant="label">Finance Office</AppText>
+                <AppText variant="label">{r.author_name || 'Finance Office'}</AppText>
                 <AppText variant="muted" style={{ marginTop: 4, fontSize: 11 }}>{formatDateTime(r.created_at)}</AppText>
                 <AppText selectable style={{ marginTop: 8 }}>{r.body}</AppText>
               </Card>
@@ -277,6 +375,7 @@ export function TicketDetailScreen() {
           </View>
         ) : null}
         {staff && t.status !== 'cancelled' ? <StaffControls key={t.updated_at} ticket={t} /> : !staff ? <BookingPanel ticket={t} /> : null}
+        {user?.role === 'admin' && t.status !== 'cancelled' ? <AdminAssignmentControl ticket={t} /> : null}
         {staff && t.appointment_slot ? <Card><AppText variant="label">Appointment</AppText><AppText variant="bold" style={{ marginTop: 4 }}>{formatDateTime(t.appointment_slot)}</AppText></Card> : null}
         {!staff && ['pending', 'in_review'].includes(t.status) ? (
           <>
@@ -285,6 +384,7 @@ export function TicketDetailScreen() {
               onPress={() => Alert.alert('Cancel this ticket?', 'This also releases any appointment you booked.', [{ text: 'Keep it', style: 'cancel' }, { text: 'Cancel ticket', style: 'destructive', onPress: () => cancel.mutate() }])} />
           </>
         ) : null}
+        {t.attended_by_name ? <Card><AppText variant="muted">Attended by {t.attended_by_name.trim().split(/\s+/)[0]}</AppText></Card> : null}
       </View>
     </Screen>
   );
@@ -292,16 +392,20 @@ export function TicketDetailScreen() {
 
 // ── Staff: queue ─────────────────────────────────────────────
 
-type Filter = 'open' | TicketStatus | 'all';
+type Filter = 'open' | 'my' | TicketStatus | 'all';
 
 export function QueueScreen() {
   const router = useRouter();
   const { colors } = useTheme();
   const [filter, setFilter] = useState<Filter>('open');
-  const q = useQuery({ queryKey: ['tickets', 'staff'], queryFn: () => api.get<{ tickets: Ticket[] }>('/tickets'), refetchInterval: REFRESH_MS });
-  const rows = (q.data?.tickets ?? []).filter((t) => (filter === 'all' ? true : filter === 'open' ? ['pending', 'in_review'].includes(t.status) : t.status === filter));
+  const q = useQuery({
+    queryKey: ['tickets', 'staff', filter],
+    queryFn: () => api.get<{ tickets: Ticket[] }>(filter === 'my' ? '/tickets?assignedTo=me' : '/tickets'),
+    refetchInterval: REFRESH_MS,
+  });
+  const rows = (q.data?.tickets ?? []).filter((t) => (filter === 'all' || filter === 'my' ? true : filter === 'open' ? ['pending', 'in_review'].includes(t.status) : t.status === filter));
   const tabs: { label: string; value: Filter }[] = [
-    { label: 'Open', value: 'open' }, { label: 'Pending', value: 'pending' }, { label: 'In review', value: 'in_review' },
+    { label: 'Open', value: 'open' }, { label: 'My tickets', value: 'my' }, { label: 'Pending', value: 'pending' }, { label: 'In review', value: 'in_review' },
     { label: 'Resolved', value: 'resolved' }, { label: 'Cancelled', value: 'cancelled' }, { label: 'All', value: 'all' },
   ];
   return (

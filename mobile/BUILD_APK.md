@@ -1,58 +1,64 @@
-# Building the Finesse Android APK
+# Android APK (EAS internal distribution)
 
-The phone cannot reach `localhost`, and release apps refuse plain `http://`. So the APK needs the Finesse API on a public **https** address.
+The current profile is for staging/internal testing. It produces a signed installable APK; it does not deploy the API or publish to Google Play.
 
-## 1. Put the API on https (pick one)
-**A. Deploy it (permanent)** - Render/Railway/Fly. Root directory `backend`, Dockerfile or `npm ci` + `node src/server.js`.
-Env vars: everything in backend/.env.example, plus `NODE_ENV=production`, `CORS_ORIGIN=<your web url>`, `PUBLIC_WEB_URL=<your web url>`.
-Check: `https://<your-api>/api/health`.
+## Before building
 
-**B. Tunnel your laptop (temporary, for demos)** - keep `npm run dev` running, then `cloudflared tunnel --url http://localhost:4000`
-(or `ngrok http 4000`). It prints an https address. Works only while your laptop and the tunnel are on.
+1. Deploy the staging API and confirm its `/api/health` URL uses HTTPS.
+2. In the Expo dashboard, create an EAS project for this app. From PowerShell, run these commands from the repository root:
 
-Test it from the repo root: `npm run check:api -- https://<your-api>`
+   ```powershell
+   Set-Location .\mobile
+   npx eas-cli@latest login
+   npx eas-cli@latest init
+   ```
 
-## 2. Run locally in Expo Go
-```
-cd mobile && npm install && npx expo start -c
-```
-Set `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY` and `EXPO_PUBLIC_API_URL` in the git-ignored `mobile/.env` first. For a physical phone, set the API URL to the computer's LAN address, such as `http://<LAN-IP>:4000`; the phone and computer must be on the same network. Simulator/emulator users should set the reachable API URL for their setup explicitly.
+   `eas init` links the project and records its EAS project ID. It has not been run as part of this task.
+3. In the EAS dashboard, create these **preview** environment variables using the staging values:
+   - `EXPO_PUBLIC_API_URL` — the HTTPS staging API origin
+   - `EXPO_PUBLIC_SUPABASE_URL` — the staging Supabase project URL
+   - `EXPO_PUBLIC_SUPABASE_ANON_KEY` — the staging anon/publishable key
 
-## 3. Build the APK (Expo cloud build)
-```
-npm install -g eas-cli
-cd mobile
-eas login
-eas init
-```
-`mobile/.env` is git-ignored, so the cloud build never sees it. Define all three required public values in the EAS `preview` environment. Recommended: use EAS environment variables (the Supabase URL, anon/publishable key and API URL are public client configuration, not secrets):
-```
-eas env:create --environment preview --name EXPO_PUBLIC_SUPABASE_URL --value https://xxxx.supabase.co --visibility plaintext
-eas env:create --environment preview --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value <anon key> --visibility plaintext
-eas env:create --environment preview --name EXPO_PUBLIC_API_URL --value https://<your-api> --visibility plaintext
-```
-Alternatively, non-secret values can go in the selected build profile's `env` object in `eas.json`:
-```json
-"preview": {
-  "env": {
-    "EXPO_PUBLIC_SUPABASE_URL": "https://<project-ref>.supabase.co",
-    "EXPO_PUBLIC_SUPABASE_ANON_KEY": "<anon-or-publishable-key>",
-    "EXPO_PUBLIC_API_URL": "https://<api-host>"
-  }
-}
-```
-Do not put a service-role key, secret key, database password or AI-provider key in `eas.json` or any `EXPO_PUBLIC_*` variable. If a flag differs on your eas-cli version: `eas env:create --help`.
-```
-eas build --platform android --profile preview
-```
-When it finishes, open the link it prints on the phone and install the APK (allow "install unknown apps").
+   These client values are public app configuration. Never add a service-role key, database password, or AI-provider key to EAS mobile variables. Local development continues to use the ignored `mobile/.env`.
+4. Confirm the Expo app config still shows display name `Finesse`, slug `finesse-mobile`, and Android package `ke.ac.finesse.mobile`. The branded app icon and splash currently use `assets/finesse.png`; check the actual release splash on a device before distribution.
 
-## 4. Test checklist on the phone
-Sign in (student + staff) - raise a ticket - see it appear on the web app within seconds - change its status on web and watch the phone update -
-apply for an exam card - upload a statement - close and reopen the app (should stay signed in) - toggle theme - airplane mode (should show a clear error).
-Crash? Plug in USB and run `adb logcat *:E`.
+## Build and install
 
-## Notes
-* API and Supabase URL changes require a new build because the values are bundled into the app.
-* Keep a secure backup of the Android signing keystore and its password (use `eas credentials` to view/manage credentials). Store the backup separately from the repository. Losing it prevents updates to the same installed Android app.
-* Play Store needs the `production` profile (an .aab) and a Google Play developer account.
+From `mobile/`, run:
+
+```powershell
+npx eas-cli@latest build --platform android --profile preview
+```
+
+The `preview` profile uses internal distribution, an installable APK, EAS `preview` variables, and remote auto-incremented build versions. It does not expose a LAN/HTTP endpoint: release builds reject non-HTTPS API URLs.
+
+When EAS completes:
+
+1. Copy the EAS build's HTTPS download link and share it only with intended testers.
+2. On Android, open the link, download the APK, and open it from Downloads.
+3. If prompted, allow the browser or Files app to install unknown apps, then confirm **Install**. Revoke that per-app permission afterward if desired.
+4. Open Finesse, sign in with a staging account, and test ticket creation, appointments, response history, and the role-appropriate screens. Do not use production credentials in a staging APK.
+
+## Android signing and versions
+
+The package ID is fixed at `ke.ac.finesse.mobile`. The mobile app version is `1.1.0`; EAS uses `appVersionSource: remote` and increments build versions for the preview profile. Keep the Android signing keystore and its password in a separately secured backup, not in this repository. Losing the signing identity prevents seamless updates to installed APKs. Verify the backup can be restored before distributing broadly.
+
+The Expo `android/` and `ios/` native directories are absent. This is the Expo managed / Continuous Native Generation workflow; EAS generates native projects from `mobile/app.json`. Do not create or edit native folders by hand.
+
+## Privacy notice (short form)
+
+Finesse uses account details and student identifiers to provide sign-in and campus finance services. Tickets, Finance Office responses, appointment bookings, exam-card applications, and fee-statement uploads are sent securely to the Finesse API and Supabase and are visible only to authorized roles. Sign-in tokens are stored using Android's secure storage. The camera is used only when a user chooses the exam-card scanning feature. The default ticket classifier runs as backend rules and does not send student data to an AI provider. Email notices link back to the app and do not include personal financial details. Contact the institution's Finance Office for questions or account corrections.
+
+Publish this notice at an institution-approved HTTPS URL before any store release; no contact address or public privacy URL has been supplied yet.
+
+## Google Play later
+
+- Obtain the Play Console account and confirm current target-API, testing, and submission requirements before release.
+- Keep the package ID unchanged; use the existing `production` profile, which builds an Android App Bundle (`.aab`) rather than the internal APK.
+- Set production EAS environment values to the production HTTPS API and production Supabase URL/anon key; never reuse staging credentials.
+- Back up and verify the EAS signing credentials. Prepare store listing, screenshots, app icon, support contact, privacy-policy URL, content rating, Data safety declarations, account-access instructions, and permission explanations (camera only for card scanning).
+- Complete required internal/closed testing, verify the release AAB on test devices, and submit only after institutional privacy and security approval.
+
+EAS Update is not configured. It can be considered after the EAS project is linked and runtime-version/update-channel compatibility is decided; use a new APK for native changes or API/Supabase environment changes.
+
+The root `app.json` is a separate, minimal Expo config at repository root that lists a datetime-picker plugin. It is not the mobile app's build config. EAS commands must run from `mobile/`, where `mobile/app.json` and `mobile/eas.json` define this Android app. Leave the root config in place; do not delete it as part of mobile release setup.
