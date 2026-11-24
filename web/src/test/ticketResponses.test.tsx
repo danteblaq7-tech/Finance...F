@@ -48,7 +48,8 @@ describe('ticket response history', () => {
     const second = within(history).getByText('The duplicate charge was reversed.');
     expect(history.textContent!.indexOf(first.textContent!)).toBeLessThan(history.textContent!.indexOf(second.textContent!));
     expect(within(history).getByText('Finance Office')).toBeInTheDocument();
-    expect(within(history).getByText('Susan Otieno')).toBeInTheDocument();
+    expect(within(history).getByText('Susan')).toBeInTheDocument();
+    expect(within(history).queryByText('Susan Otieno')).not.toBeInTheDocument();
     expect(screen.getByText('Attended by Susan')).toBeInTheDocument();
     expect(within(history).getAllByRole('time')).toHaveLength(2);
     expect(screen.queryByLabelText('New Finance Office response')).not.toBeInTheDocument();

@@ -4,6 +4,10 @@ export function cn(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(' ');
 }
 
+export function firstName(name: string | null | undefined): string {
+  return name?.trim().split(/\s+/)[0] ?? '';
+}
+
 /** The API returns wall-clock strings like "2026-10-17 10:00:00". Parse them as local time. */
 export function parseWall(s: string): Date {
   return new Date(s.includes('T') ? s : s.replace(' ', 'T'));

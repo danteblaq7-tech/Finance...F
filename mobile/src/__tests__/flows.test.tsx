@@ -74,6 +74,39 @@ describe('student: tickets', () => {
     }));
   });
 
+  it('uploads selected evidence files after creating a ticket', async () => {
+    installFakeApi({
+      ...(await signedInAs('student')),
+      'GET /slots/dates': { body: { dates: [] } },
+      'POST /tickets': { status: 201, body: { ticket: ticket({ id: 'new-evidence' }) } },
+      'GET /tickets/new-evidence': { body: { ticket: ticket({ id: 'new-evidence' }) } },
+      'GET /tickets/new-evidence/attachments': { body: { attachments: [] } },
+    });
+    const picker = jest.mocked(DocumentPicker.getDocumentAsync);
+    picker.mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///proof.pdf', name: 'proof.pdf', mimeType: 'application/pdf', size: 100, lastModified: 0 }],
+    });
+    const upload = jest.spyOn(api, 'upload').mockImplementation(async () => ({} as never));
+
+    try {
+      await mount('/tickets/new');
+      await fireEvent.press(await screen.findByText('Fee Dispute'));
+      await fireEvent.changeText(screen.getByLabelText('Description'), 'Please review this payment evidence.');
+      await fireEvent.press(screen.getByText('Choose evidence files'));
+      expect(await screen.findByText('proof.pdf')).toBeTruthy();
+      await fireEvent.press(screen.getByText('Submit ticket'));
+      await waitFor(() => expect(upload).toHaveBeenCalledWith('/tickets/new-evidence/attachments', {
+        uri: 'file:///proof.pdf',
+        name: 'proof.pdf',
+        mimeType: 'application/pdf',
+      }));
+    } finally {
+      upload.mockRestore();
+      picker.mockReset();
+    }
+  });
+
   it('books an appointment slot after confirming, and surfaces a double-booking conflict', async () => {
     const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     const d = day(2);
@@ -103,12 +136,16 @@ describe('student: tickets', () => {
     installFakeApi({ ...(await signedInAs('student')), 'GET /tickets/t1': { body: { ticket: ticket({ status: 'resolved', attended_by_name: 'Susan Otieno', responses: [
       { id: 'r1', ticket_id: 't1', author_id: null, author_name: null, body: 'We are reviewing the transaction.', created_at: '2026-10-15 09:00:00' },
       { id: 'r2', ticket_id: 't1', author_id: 'u2', author_name: 'Susan Otieno', body: 'Duplicate charge reversed on 15 Oct.', created_at: '2026-10-16 10:30:00' },
-    ] }) } } });
+    ] }) } }, 'GET /tickets/t1/attachments': { body: { attachments: [
+      { id: 'a1', fileName: 'proof.pdf', mimeType: 'application/pdf', sizeBytes: 1200, createdAt: '2026-10-15', url: 'https://storage.example/signed', expiresInSeconds: 300 },
+    ] } } });
     await mount('/tickets/t1');
     expect(await screen.findByText('We are reviewing the transaction.')).toBeTruthy();
     expect(await screen.findByText('Duplicate charge reversed on 15 Oct.')).toBeTruthy();
+    expect(await screen.findByText('Open proof.pdf')).toBeTruthy();
     expect(screen.getByText('Finance Office')).toBeTruthy();
-    expect(screen.getByText('Susan Otieno')).toBeTruthy();
+    expect(screen.getByText('Susan')).toBeTruthy();
+    expect(screen.queryByText('Susan Otieno')).toBeNull();
     expect(screen.getByText('Attended by Susan')).toBeTruthy();
     expect(screen.getByText('Fri 16 Oct, 10:30 AM')).toBeTruthy();
     expect(screen.getByText('RESOLVED')).toBeTruthy();

@@ -13,6 +13,16 @@ export interface TicketResponse {
   author_name?: string | null;
 }
 
+export interface TicketAttachment {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: string;
+  url: string;
+  expiresInSeconds: number;
+}
+
 export interface TicketClassification {
   suggested_category: string;
   suggested_priority: TicketPriority;

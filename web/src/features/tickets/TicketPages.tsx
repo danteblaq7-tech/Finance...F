@@ -9,10 +9,26 @@ import { Badge, Button, Empty, ErrorNote, Field, PageHeader, Spinner } from '@/c
 import { useAuth } from '@/features/auth/AuthProvider';
 import { api } from '@/lib/api';
 import { ISSUE_LABELS, ISSUE_TYPES, TICKET_STATUS, TONE } from '@/lib/constants';
-import type { Slot, SlotDate, Ticket, TicketPriority, TicketStatus } from '@/lib/types';
-import { cn, formatDate, formatDateTime, formatTime, isStaffRole } from '@/lib/utils';
+import type { Slot, SlotDate, Ticket, TicketAttachment, TicketPriority, TicketStatus } from '@/lib/types';
+import { cn, firstName, formatDate, formatDateTime, formatTime, isStaffRole } from '@/lib/utils';
 
 const REFRESH_MS = 15_000; // tickets & slots poll so staff updates show up without a reload
+const MAX_EVIDENCE_BYTES = 5 * 1024 * 1024;
+const MAX_EVIDENCE_FILES = 3;
+const EVIDENCE_TYPES = new Set(['application/pdf', 'image/png', 'image/jpeg']);
+
+function getEvidenceError(files: File[], existingCount = 0): string | null {
+  if (existingCount + files.length > MAX_EVIDENCE_FILES) return 'Attach no more than 3 files to a ticket.';
+  if (files.some((file) => file.size > MAX_EVIDENCE_BYTES)) return 'Each evidence file must be 5 MB or smaller.';
+  if (files.some((file) => file.type && !EVIDENCE_TYPES.has(file.type))) return 'Evidence must be a PDF, PNG, or JPEG image.';
+  return null;
+}
+
+async function uploadEvidence(ticketId: string, files: File[]) {
+  for (const file of files) {
+    await api.upload(`/tickets/${ticketId}/attachments`, file);
+  }
+}
 
 function TicketRow({ t, staff }: { t: Ticket; staff?: boolean }) {
   const s = TICKET_STATUS[t.status];
@@ -63,6 +79,9 @@ export function NewTicketPage() {
   const qc = useQueryClient();
   const [appointmentDate, setAppointmentDate] = useState<string | null>(null);
   const [appointmentSlotId, setAppointmentSlotId] = useState<string | null>(null);
+  const [evidence, setEvidence] = useState<File[]>([]);
+  const [evidenceError, setEvidenceError] = useState<string | null>(null);
+  const [createdTicketId, setCreatedTicketId] = useState<string | null>(null);
   const { register, handleSubmit, formState: { errors } } = useForm<NewTicketValues>({
     resolver: zodResolver(newTicketSchema), defaultValues: { issueType: '', priority: 'medium', description: '' },
   });
@@ -80,16 +99,35 @@ export function NewTicketPage() {
   });
   const selectedSlot = slots.data?.slots.find((slot) => slot.id === appointmentSlotId);
   const create = useMutation({
-    mutationFn: (v: NewTicketValues) => api.post<{ ticket: Ticket }>('/tickets', {
-      ...v,
-      ...(appointmentSlotId ? { slotId: appointmentSlotId } : {}),
-    }),
-    onSuccess: (r) => { void qc.invalidateQueries({ queryKey: ['tickets'] }); navigate(`/tickets/${r.ticket.id}`); },
+    mutationFn: async (v: NewTicketValues) => {
+      const { ticket } = await api.post<{ ticket: Ticket }>('/tickets', {
+        ...v,
+        ...(appointmentSlotId ? { slotId: appointmentSlotId } : {}),
+      });
+      let uploadError: string | null = null;
+      try {
+        await uploadEvidence(ticket.id, evidence);
+      } catch (error) {
+        uploadError = error instanceof Error ? error.message : 'One or more evidence files could not be uploaded.';
+      }
+      return { ticket, uploadError };
+    },
+    onSuccess: ({ ticket, uploadError }) => {
+      void qc.invalidateQueries({ queryKey: ['tickets'] });
+      if (uploadError) {
+        setCreatedTicketId(ticket.id);
+        setEvidenceError(`Your ticket was created, but evidence upload did not finish: ${uploadError}`);
+      } else {
+        navigate(`/tickets/${ticket.id}`);
+      }
+    },
   });
   return (
     <>
       <PageHeader title="Raise a Ticket" subtitle="Tell the finance office what you need" />
-      <form onSubmit={handleSubmit((v) => create.mutate(v))} className="card max-w-2xl space-y-4" noValidate>
+      <form onSubmit={handleSubmit((v) => {
+        if (!evidenceError) create.mutate(v);
+      })} className="card max-w-2xl space-y-4" noValidate>
         <Field label="Issue type" error={errors.issueType?.message}>
           <select className="input" {...register('issueType')}>
             <option value="">Select…</option>
@@ -103,6 +141,22 @@ export function NewTicketPage() {
         </Field>
         <Field label="Description" error={errors.description?.message}>
           <textarea rows={6} className="input" {...register('description')} />
+        </Field>
+        <Field label="Evidence files (optional)" hint="Attach up to 3 PDFs or images, 5 MB each.">
+          <input
+            className="input"
+            type="file"
+            accept="application/pdf,image/png,image/jpeg"
+            multiple
+            onChange={(event) => {
+              const files = Array.from(event.target.files ?? []);
+              const error = getEvidenceError(files);
+              setEvidenceError(error);
+              setEvidence(error ? [] : files);
+            }}
+          />
+          {evidence.map((file) => <p key={`${file.name}-${file.lastModified}`} className="mt-1 text-xs text-ink-muted">{file.name}</p>)}
+          {evidenceError && <p role="alert" className="text-sm text-red-600">{evidenceError}</p>}
         </Field>
         <section className="space-y-3 rounded-lg border border-line p-4" aria-label="Optional in-person appointment">
           <div>
@@ -149,7 +203,8 @@ export function NewTicketPage() {
           {selectedSlot && <p className="text-sm text-brand-teal-lt">Selected: {formatDate(activeDate)} at {formatTime(selectedSlot.start_time)}</p>}
         </section>
         <ErrorNote error={create.error} />
-        <Button type="submit" loading={create.isPending}>Submit ticket</Button>
+        {createdTicketId && <Link className="text-sm text-brand-teal-lt underline" to={`/tickets/${createdTicketId}`}>Open your ticket to review or retry evidence uploads.</Link>}
+        <Button type="submit" loading={create.isPending} disabled={Boolean(createdTicketId)}>Submit ticket</Button>
       </form>
     </>
   );
@@ -315,6 +370,71 @@ function AdminAssignmentControl({ ticket }: { ticket: Ticket }) {
   );
 }
 
+function TicketEvidenceSection({ ticket, canUpload }: { ticket: Ticket; canUpload: boolean }) {
+  const qc = useQueryClient();
+  const [files, setFiles] = useState<File[]>([]);
+  const [selectionError, setSelectionError] = useState<string | null>(null);
+  const attachments = useQuery({
+    queryKey: ['ticket-attachments', ticket.id],
+    queryFn: () => api.get<{ attachments: TicketAttachment[] }>(`/tickets/${ticket.id}/attachments`),
+    staleTime: 4 * 60_000,
+  });
+  const upload = useMutation({
+    mutationFn: () => uploadEvidence(ticket.id, files),
+    onSuccess: () => {
+      setFiles([]);
+      setSelectionError(null);
+      void qc.invalidateQueries({ queryKey: ['ticket-attachments', ticket.id] });
+    },
+  });
+  const saved = attachments.data?.attachments ?? [];
+  return (
+    <section className="card space-y-3" aria-label="Ticket evidence">
+      <div className="label">Attachments</div>
+      <p className="text-xs text-ink-muted">Private file links expire after 5 minutes.</p>
+      {attachments.isLoading ? <Spinner /> : attachments.error ? <ErrorNote error={attachments.error} /> : saved.length ? (
+        <ul className="space-y-2">
+          {saved.map((file) => (
+            <li key={file.id}>
+              <a className="text-brand-teal-lt underline" href={file.url} target="_blank" rel="noreferrer">
+                Open {file.fileName}
+              </a>
+            </li>
+          ))}
+        </ul>
+      ) : <p className="text-sm text-ink-muted">No files attached.</p>}
+      {canUpload && saved.length < MAX_EVIDENCE_FILES && (
+        <div className="space-y-2">
+          <label className="block text-sm font-medium">
+            Add evidence (up to {MAX_EVIDENCE_FILES - saved.length} more)
+            <input
+              className="input mt-1"
+              type="file"
+              accept="application/pdf,image/png,image/jpeg"
+              multiple
+              onChange={(event) => {
+                const next = Array.from(event.target.files ?? []);
+                const error = getEvidenceError(next, saved.length);
+                setSelectionError(error);
+                setFiles(error ? [] : next);
+              }}
+            />
+          </label>
+          {selectionError && <p role="alert" className="text-sm text-red-600">{selectionError}</p>}
+          <ErrorNote error={upload.error} />
+          <Button
+            disabled={!files.length || Boolean(selectionError)}
+            loading={upload.isPending}
+            onClick={() => upload.mutate()}
+          >
+            Upload evidence
+          </Button>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function TicketDetailPage() {
   const { id } = useParams();
   const { user } = useAuth();
@@ -335,13 +455,14 @@ export function TicketDetailPage() {
       <PageHeader title={ISSUE_LABELS[t.issue_type] ?? t.issue_type} subtitle={`${t.student_name}${t.student_number ? ` · ${t.student_number}` : ''} · raised ${formatDateTime(t.created_at)}`} action={<Badge color={s.color}>{s.label}</Badge>} />
       <div className="space-y-4">
         <div className="card"><div className="label">Description</div><p className="whitespace-pre-wrap">{t.description}</p></div>
+        <TicketEvidenceSection ticket={t} canUpload={!staff && t.status === 'pending'} />
         {!!t.responses?.length && (
           <section aria-label="Finance Office response history" className="space-y-3">
             <div className="label">Finance Office response history</div>
             {t.responses.map((r) => (
               <div key={r.id} className="card border-brand-teal-lt/50">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="label">{r.author_name || 'Finance Office'}</div>
+                  <div className="label">{firstName(r.author_name) || 'Finance Office'}</div>
                   <time className="text-xs text-ink-muted">{formatDateTime(r.created_at)}</time>
                 </div>
                 <p className="mt-2 whitespace-pre-wrap">{r.body}</p>
@@ -358,7 +479,7 @@ export function TicketDetailPage() {
             <Button variant="danger" loading={cancel.isPending} onClick={() => { if (confirm('Cancel this ticket?')) cancel.mutate(); }}>Cancel ticket</Button>
           </>
         )}
-        {t.attended_by_name && <div className="card text-sm text-ink-secondary">Attended by {t.attended_by_name.trim().split(/\s+/)[0]}</div>}
+        {t.attended_by_name && <div className="card text-sm text-ink-secondary">Attended by {firstName(t.attended_by_name)}</div>}
       </div>
     </>
   );

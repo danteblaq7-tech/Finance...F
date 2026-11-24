@@ -51,3 +51,7 @@ export function initials(name: string): string {
     .map((p) => p[0]!.toUpperCase())
     .join('');
 }
+
+export function firstName(name: string | null | undefined): string {
+  return name?.trim().split(/\s+/)[0] ?? '';
+}

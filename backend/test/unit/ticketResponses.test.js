@@ -28,6 +28,7 @@ const state = {
     updated_at: '2026-10-14T08:40:00.000Z',
   },
   responses: [],
+  attachments: [],
   classification: null,
   auditEvents: [],
 };
@@ -46,6 +47,7 @@ function reset() {
   state.ticket.attended_by = null;
   state.ticket.appointment_slot = null;
   state.responses = [];
+  state.attachments = [];
   state.classification = null;
   state.auditEvents = [];
   classificationResult = {
@@ -100,8 +102,8 @@ async function execute(sql, params = []) {
     for (const column of ['issue_type', 'status', 'priority', 'assigned_staff_id', 'attended_by']) {
       const match = sql.match(new RegExp(`${column} = \\$(\\d+)`));
       const coalesce = sql.match(new RegExp(`${column} = COALESCE\\(${column}, \\$(\\d+)\\)`));
-      const selected = match ?? coalesce;
-      if (selected) state.ticket[column] = params[Number(selected[1]) - 1];
+      if (coalesce) state.ticket[column] ??= params[Number(coalesce[1]) - 1];
+      else if (match) state.ticket[column] = params[Number(match[1]) - 1];
     }
     return { rows: [] };
   }
@@ -115,6 +117,27 @@ async function execute(sql, params = []) {
       created_at: `2026-10-16T10:0${responseSequence}:00.000Z`,
     });
     return { rows: [{ id }] };
+  }
+  if (/SELECT status FROM tickets WHERE id = \$1 AND student_id = \$2 FOR UPDATE/.test(sql)) {
+    const ticket = selectTicket(params[0]);
+    return { rows: ticket?.student_id === params[1] ? [{ status: ticket.status }] : [] };
+  }
+  if (/SELECT count\(\*\)::int AS count FROM ticket_attachments/.test(sql)) {
+    return { rows: [{ count: state.attachments.filter((a) => a.ticket_id === params[0]).length }] };
+  }
+  if (/INSERT INTO ticket_attachments/.test(sql)) {
+    const attachment = {
+      id: `attachment-${state.attachments.length + 1}`,
+      ticket_id: params[0],
+      uploaded_by: params[1],
+      file_name: params[2],
+      file_path: params[3],
+      mime_type: params[4],
+      size_bytes: params[5],
+      created_at: '2026-11-24T05:00:00.000Z',
+    };
+    state.attachments.push(attachment);
+    return { rows: [attachment] };
   }
   if (/INSERT INTO public\.staff_action_audit_log/.test(sql)) {
     state.auditEvents.push({ action: params[1], entityId: params[3], metadata: JSON.parse(params[4]) });
@@ -141,6 +164,9 @@ mock.module(src('db.js'), {
         return state.responses.filter((r) => r.ticket_id === params[0]).sort((a, b) => a.created_at.localeCompare(b.created_at))
           .map((r) => ({ ...r, author_name: [STAFF, STAFF_TWO, ADMIN].find((user) => user.id === r.author_id)?.name ?? null }));
       }
+      if (/FROM ticket_attachments WHERE ticket_id = \$1/.test(sql)) {
+        return state.attachments.filter((a) => a.ticket_id === params[0]).sort((a, b) => a.created_at.localeCompare(b.created_at));
+      }
       if (/FROM tickets t\s+JOIN profiles/.test(sql)) {
         return sql.includes('t.assigned_staff_id =')
           ? (state.ticket.assigned_staff_id === params[0] ? [selectTicket(state.ticket.id)] : [])
@@ -166,6 +192,7 @@ mock.module(src('middleware/auth.js'), {
       next();
     },
     isStaff: (user) => user?.role === 'staff' || user?.role === 'admin',
+    requireStudent: (req, res, next) => req.user?.role === 'student' ? next() : res.status(403).json({ error: 'Students only.' }),
   },
 });
 mock.module(src('notifications.js'), {
@@ -176,6 +203,13 @@ mock.module(src('notifications.js'), {
 mock.module(src('classifier.js'), {
   namedExports: {
     classifyTicket: async () => classificationResult,
+  },
+});
+mock.module(src('storage.js'), {
+  namedExports: {
+    saveTicketEvidenceFile: async () => {},
+    removeTicketEvidenceFile: async () => {},
+    ticketEvidenceSignedUrl: async (path, seconds) => `https://signed.example/${path}?expires=${seconds}`,
   },
 });
 
@@ -200,6 +234,18 @@ const api = async (path, token, options = {}) => {
     method: options.method ?? 'GET',
     headers: { Authorization: `Bearer ${token}`, ...(options.body ? { 'Content-Type': 'application/json' } : {}) },
     body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+  return { status: res.status, json: await res.json() };
+};
+const uploadEvidence = async (data, token = 'student', fileName = 'evidence.png') => {
+  const res = await fetch(`${base}/api/tickets/${state.ticket.id}/attachments`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'image/png',
+      'X-File-Name': encodeURIComponent(fileName),
+    },
+    body: data,
   });
   return { status: res.status, json: await res.json() };
 };
@@ -247,8 +293,9 @@ describe('ticket response history', () => {
 
   test('staff responses append and detail returns them oldest first to the ticket owner', async () => {
     await api(`/api/tickets/${state.ticket.id}`, 'staff', { method: 'PATCH', body: { response: 'First update.' } });
-    await api(`/api/tickets/${state.ticket.id}`, 'staff', { method: 'PATCH', body: { response: 'Second update.' } });
+    await api(`/api/tickets/${state.ticket.id}`, 'staff-two', { method: 'PATCH', body: { response: 'Second update.' } });
     assert.deepEqual(notifications.map(({ event }) => event), ['ticket_response', 'ticket_response']);
+    assert.equal(state.ticket.attended_by, STAFF.id, 'the first responding staff member remains the attendant');
 
     const detail = await api(`/api/tickets/${state.ticket.id}`, 'student');
     assert.equal(detail.status, 200);
@@ -279,12 +326,12 @@ describe('ticket response history', () => {
   });
 
   test('only admins may assign tickets, and inactive/non-staff targets are rejected', async () => {
-    for (const role of ['student', 'lecturer', 'staff']) {
+    for (const [role, expectedStatus] of [['student', 403], ['lecturer', 404], ['staff', 403]]) {
       const result = await api(`/api/tickets/${state.ticket.id}`, role, {
         method: 'PATCH',
         body: { assignedStaffId: STAFF.id },
       });
-      assert.ok(result.status >= 400, `${role} must not assign tickets`);
+      assert.equal(result.status, expectedStatus, `${role} must not assign tickets`);
     }
 
     const invalidTarget = await api(`/api/tickets/${state.ticket.id}`, 'admin', {
@@ -294,6 +341,31 @@ describe('ticket response history', () => {
     assert.equal(invalidTarget.status, 400);
     assert.equal(state.ticket.assigned_staff_id, null);
     assert.equal(state.auditEvents.length, 0);
+  });
+
+  test('ticket evidence accepts only image/PDF signatures, caps count, and returns short-lived links to authorized viewers', async () => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const uploaded = await uploadEvidence(png, 'student', 'proof.png');
+    assert.equal(uploaded.status, 201);
+    assert.equal(uploaded.json.attachment.mime_type, 'image/png');
+    assert.equal(uploaded.json.attachment.file_name, 'proof.png');
+
+    const studentView = await api(`/api/tickets/${state.ticket.id}/attachments`, 'student');
+    assert.equal(studentView.status, 200);
+    assert.match(studentView.json.attachments[0].url, /^https:\/\/signed\.example\/33333333-3333-4333-8333-333333333333\/.+\?expires=300$/);
+    assert.equal(studentView.json.attachments[0].expiresInSeconds, 300);
+    const staffView = await api(`/api/tickets/${state.ticket.id}/attachments`, 'staff');
+    assert.equal(staffView.status, 200);
+    assert.equal((await api(`/api/tickets/${state.ticket.id}/attachments`, 'admin')).status, 200);
+    assert.equal((await api(`/api/tickets/${state.ticket.id}/attachments`, 'lecturer')).status, 404);
+
+    assert.equal((await uploadEvidence(Buffer.from('not a real PDF'), 'student', 'proof.pdf')).status, 415);
+    assert.equal((await uploadEvidence(Buffer.alloc(5 * 1024 * 1024 + 1))).status, 413);
+    state.attachments.push(
+      { ticket_id: state.ticket.id, created_at: '2026-11-24T05:01:00.000Z' },
+      { ticket_id: state.ticket.id, created_at: '2026-11-24T05:02:00.000Z' },
+    );
+    assert.equal((await uploadEvidence(png)).status, 409);
   });
 
   test('staff can filter to their own tickets; student and lecturer roles cannot use that filter', async () => {

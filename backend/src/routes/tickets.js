@@ -1,7 +1,7 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import { z } from 'zod';
 import { bind, query, queryOne, withTransaction } from '../db.js';
-import { isStaff, requireAuth } from '../middleware/auth.js';
+import { isStaff, requireAuth, requireStudent } from '../middleware/auth.js';
 import { asyncHandler, HttpError } from '../middleware/errors.js';
 import { notifyTicketOwner } from '../notifications.js';
 import { classifyTicket } from '../classifier.js';
@@ -9,6 +9,9 @@ import { uuidSchema } from '../validation.js';
 import rateLimit from 'express-rate-limit';
 import { config } from '../config.js';
 import { auditStaffAction } from '../auditLog.js';
+import { safeFileName, sniffFile } from '../fileType.js';
+import { removeTicketEvidenceFile, saveTicketEvidenceFile, ticketEvidenceSignedUrl } from '../storage.js';
+import { logger } from '../logger.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -22,6 +25,10 @@ const limit = (perWindow) => rateLimit({
 });
 const ticketCreateLimiter = limit(10);
 const classificationLimiter = limit(20);
+const evidenceUploadLimiter = limit(30);
+const MAX_EVIDENCE_FILE_BYTES = 5 * 1024 * 1024;
+const MAX_EVIDENCE_FILES = 3;
+const EVIDENCE_MIME_TYPES = new Set(['application/pdf', 'image/png', 'image/jpeg']);
 
 const ISSUE_TYPES = ['fee_dispute', 'payment_plan', 'sponsorship', 'helb', 'bursary', 'fee_statement', 'other'];
 
@@ -138,12 +145,98 @@ router.get(
   asyncHandler(async (req, res) => res.json({ ticket: await loadTicket(req.params.id, req.user) })),
 );
 
+router.get(
+  '/:id/attachments',
+  asyncHandler(async (req, res) => {
+    const ticket = await loadTicket(req.params.id, req.user);
+    const attachments = await query(
+      `SELECT id, file_name, mime_type, size_bytes, created_at, file_path
+       FROM ticket_attachments WHERE ticket_id = $1 ORDER BY created_at, id`,
+      [ticket.id],
+    );
+    try {
+      const signedAttachments = await Promise.all(attachments.map(async (attachment) => ({
+        id: attachment.id,
+        fileName: attachment.file_name,
+        mimeType: attachment.mime_type,
+        sizeBytes: attachment.size_bytes,
+        createdAt: attachment.created_at,
+        url: await ticketEvidenceSignedUrl(attachment.file_path, 300),
+        expiresInSeconds: 300,
+      })));
+      res.json({ attachments: signedAttachments });
+    } catch (e) {
+      logger.error('ticket_evidence_signed_url_failed', { errorCode: e.code });
+      throw new HttpError(502, 'Could not open ticket evidence right now. Please try again.');
+    }
+  }),
+);
+
+router.post(
+  '/:id/attachments',
+  requireStudent,
+  evidenceUploadLimiter,
+  express.raw({ type: () => true, limit: MAX_EVIDENCE_FILE_BYTES }),
+  asyncHandler(async (req, res) => {
+    const ticket = await loadTicket(req.params.id, req.user);
+    if (ticket.status !== 'pending') throw new HttpError(409, 'Evidence can only be attached while the ticket is pending.');
+    const buffer = req.body;
+    if (!Buffer.isBuffer(buffer) || buffer.length === 0) throw new HttpError(400, 'Choose an image or PDF to upload.');
+    const file = sniffFile(buffer);
+    if (!file || !EVIDENCE_MIME_TYPES.has(file.mime)) {
+      throw new HttpError(415, 'Unsupported evidence file. Upload a PDF, PNG, or JPEG image.');
+    }
+    let fileName = 'evidence';
+    try { fileName = safeFileName(decodeURIComponent(req.get('x-file-name') || 'evidence')); } catch { /* use a safe default */ }
+
+    const filePath = `${ticket.id}/${crypto.randomUUID()}.${file.ext}`;
+    let stored = false;
+    try {
+      const attachment = await withTransaction(async (client) => {
+        const { rows: [locked] } = await client.query(
+          'SELECT status FROM tickets WHERE id = $1 AND student_id = $2 FOR UPDATE',
+          [ticket.id, req.user.id],
+        );
+        if (!locked) throw new HttpError(404, 'Ticket not found.');
+        if (locked.status !== 'pending') throw new HttpError(409, 'Evidence can only be attached while the ticket is pending.');
+        const { rows: [count] } = await client.query(
+          'SELECT count(*)::int AS count FROM ticket_attachments WHERE ticket_id = $1',
+          [ticket.id],
+        );
+        if (count.count >= MAX_EVIDENCE_FILES) throw new HttpError(409, 'A ticket can have at most 3 evidence files.');
+        await saveTicketEvidenceFile(filePath, buffer, file.mime);
+        stored = true;
+        const { rows: [row] } = await client.query(
+          `INSERT INTO ticket_attachments (ticket_id, uploaded_by, file_name, file_path, mime_type, size_bytes)
+           VALUES ($1,$2,$3,$4,$5,$6)
+           RETURNING id, file_name, mime_type, size_bytes, created_at`,
+          [ticket.id, req.user.id, fileName, filePath, file.mime, buffer.length],
+        );
+        return row;
+      });
+      res.status(201).json({ attachment });
+    } catch (e) {
+      if (stored) {
+        try {
+          await removeTicketEvidenceFile(filePath);
+        } catch (cleanupError) {
+          logger.error('ticket_evidence_cleanup_failed', { errorCode: cleanupError.code });
+        }
+      }
+      throw e;
+    }
+  }),
+);
+
 router.patch(
   '/:id',
   asyncHandler(async (req, res) => {
     const ticket = await loadTicket(req.params.id, req.user);
 
     if (!isStaff(req.user)) {
+      if (Object.hasOwn(req.body ?? {}, 'assignedStaffId')) {
+        throw new HttpError(403, 'Only admins can assign tickets.');
+      }
       // Students may only cancel their own open ticket.
       const { status } = z.object({ status: z.literal('cancelled') }).parse(req.body);
       const hadAppointment = await withTransaction(async (client) => {

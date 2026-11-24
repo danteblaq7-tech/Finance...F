@@ -3,7 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, Text, View } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
 import { z } from 'zod';
 import { FormTextField } from '@/components/forms';
 import { ListScreen } from '@/components/ListScreen';
@@ -11,13 +12,33 @@ import { AppText, Badge, Button, Card, ChipGroup, ErrorNote, Field, Header, Scre
 import { useAuth } from '@/context/AuthProvider';
 import { api } from '@/lib/api';
 import { ISSUE_LABELS, ISSUE_TYPES, TICKET_STATUS } from '@/lib/constants';
-import { formatDateTime, formatDay, formatTime } from '@/lib/format';
-import type { Slot, SlotDate, Ticket, TicketPriority, TicketStatus } from '@/lib/types';
+import { firstName, formatDateTime, formatDay, formatTime } from '@/lib/format';
+import type { Slot, SlotDate, Ticket, TicketAttachment, TicketPriority, TicketStatus } from '@/lib/types';
 import { useTheme } from '@/theme/ThemeProvider';
 import { FONTS, RADIUS, SPACING } from '@/theme/theme';
 
 const REFRESH_MS = 15_000; // poll so staff updates show up without leaving the screen
 const invalidate = (qc: ReturnType<typeof useQueryClient>, keys: string[]) => keys.forEach((k) => void qc.invalidateQueries({ queryKey: [k] }));
+const MAX_EVIDENCE_BYTES = 5 * 1024 * 1024;
+const MAX_EVIDENCE_FILES = 3;
+const EVIDENCE_TYPES = new Set(['application/pdf', 'image/png', 'image/jpeg']);
+
+function evidenceError(files: DocumentPicker.DocumentPickerAsset[], existingCount = 0): string | null {
+  if (existingCount + files.length > MAX_EVIDENCE_FILES) return 'Attach no more than 3 files to a ticket.';
+  if (files.some((file) => file.size !== undefined && file.size > MAX_EVIDENCE_BYTES)) return 'Each evidence file must be 5 MB or smaller.';
+  if (files.some((file) => file.mimeType && !EVIDENCE_TYPES.has(file.mimeType))) return 'Evidence must be a PDF, PNG, or JPEG image.';
+  return null;
+}
+
+async function uploadEvidence(ticketId: string, files: DocumentPicker.DocumentPickerAsset[]) {
+  for (const file of files) {
+    await api.upload(`/tickets/${ticketId}/attachments`, {
+      uri: file.uri,
+      name: file.name,
+      mimeType: file.mimeType,
+    });
+  }
+}
 
 function TicketRow({ t, staff, onPress }: { t: Ticket; staff?: boolean; onPress: () => void }) {
   const s = TICKET_STATUS[t.status];
@@ -74,6 +95,8 @@ export function NewTicketScreen() {
   const [appointmentDate, setAppointmentDate] = useState<string | null>(null);
   const [appointmentSlotId, setAppointmentSlotId] = useState<string | null>(null);
   const [typeError, setTypeError] = useState<string>();
+  const [evidence, setEvidence] = useState<DocumentPicker.DocumentPickerAsset[]>([]);
+  const [evidenceErrorText, setEvidenceErrorText] = useState<string | null>(null);
   const { control, handleSubmit } = useForm<{ description: string }>({ resolver: zodResolver(newTicketSchema), defaultValues: { description: '' } });
   const dates = useQuery({
     queryKey: ['slot-dates'],
@@ -90,13 +113,23 @@ export function NewTicketScreen() {
   const selectedSlot = slots.data?.slots.find((slot) => slot.id === appointmentSlotId);
 
   const create = useMutation({
-    mutationFn: (v: { issueType: string; priority: TicketPriority; description: string }) => api.post<{ ticket: Ticket }>('/tickets', {
-      ...v,
-      ...(appointmentSlotId ? { slotId: appointmentSlotId } : {}),
-    }),
-    onSuccess: (r) => {
+    mutationFn: async (v: { issueType: string; priority: TicketPriority; description: string }) => {
+      const { ticket } = await api.post<{ ticket: Ticket }>('/tickets', {
+        ...v,
+        ...(appointmentSlotId ? { slotId: appointmentSlotId } : {}),
+      });
+      let uploadError: string | null = null;
+      try {
+        await uploadEvidence(ticket.id, evidence);
+      } catch (error) {
+        uploadError = error instanceof Error ? error.message : 'One or more evidence files could not be uploaded.';
+      }
+      return { ticket, uploadError };
+    },
+    onSuccess: ({ ticket, uploadError }) => {
       invalidate(qc, ['tickets']);
-      router.replace(`/tickets/${r.ticket.id}`);
+      if (uploadError) Alert.alert('Ticket created', `Your ticket was created, but evidence upload did not finish: ${uploadError}. You can retry from the ticket details.`);
+      router.replace(`/tickets/${ticket.id}`);
     },
   });
 
@@ -104,7 +137,7 @@ export function NewTicketScreen() {
   const submit = () => {
     setTypeError(issueType ? undefined : 'Choose an issue type');
     void handleSubmit((v) => {
-      if (!issueType) return;
+      if (!issueType || evidenceErrorText) return;
       create.mutate({ issueType, priority, description: v.description });
     })();
   };
@@ -119,6 +152,23 @@ export function NewTicketScreen() {
           <ChipGroup<TicketPriority> options={[{ label: 'Low', value: 'low' }, { label: 'Medium', value: 'medium' }, { label: 'High', value: 'high' }]} value={priority} onChange={setPriority} />
         </Field>
         <FormTextField control={control} name="description" label="Description" multiline numberOfLines={6} placeholder="What do you need help with?" />
+        <Field label="Evidence files (optional)" hint="Attach up to 3 PDFs or images, 5 MB each.">
+          <Button title={evidence.length ? 'Choose different evidence files' : 'Choose evidence files'} variant="secondary" onPress={() => {
+            void DocumentPicker.getDocumentAsync({
+              type: ['application/pdf', 'image/png', 'image/jpeg'],
+              copyToCacheDirectory: true,
+              multiple: true,
+            }).then((result) => {
+              if (result.canceled) return;
+              const next = result.assets ?? [];
+              const error = evidenceError(next);
+              setEvidenceErrorText(error);
+              setEvidence(error ? [] : next);
+            }).catch((error: unknown) => setEvidenceErrorText(error instanceof Error ? error.message : 'Could not open the file picker.'));
+          }} />
+          {evidence.map((file) => <AppText key={`${file.uri}-${file.name}`} variant="muted">{file.name}</AppText>)}
+          {evidenceErrorText ? <View accessibilityRole="alert"><AppText>{evidenceErrorText}</AppText></View> : null}
+        </Field>
         <Card>
           <AppText variant="label">In-person appointment (optional)</AppText>
           <AppText variant="muted" style={{ marginTop: 4, marginBottom: SPACING.sm }}>Choose an available time if you need to visit the Finance Office.</AppText>
@@ -333,6 +383,72 @@ function AdminAssignmentControl({ ticket }: { ticket: Ticket }) {
   );
 }
 
+function TicketEvidencePanel({ ticket, canUpload }: { ticket: Ticket; canUpload: boolean }) {
+  const qc = useQueryClient();
+  const [files, setFiles] = useState<DocumentPicker.DocumentPickerAsset[]>([]);
+  const [selectionError, setSelectionError] = useState<string | null>(null);
+  const attachments = useQuery({
+    queryKey: ['ticket-attachments', ticket.id],
+    queryFn: () => api.get<{ attachments: TicketAttachment[] }>(`/tickets/${ticket.id}/attachments`),
+    staleTime: 4 * 60_000,
+  });
+  const upload = useMutation({
+    mutationFn: () => uploadEvidence(ticket.id, files),
+    onSuccess: () => {
+      setFiles([]);
+      setSelectionError(null);
+      void qc.invalidateQueries({ queryKey: ['ticket-attachments', ticket.id] });
+    },
+  });
+  const saved = attachments.data?.attachments ?? [];
+  const choose = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/pdf', 'image/png', 'image/jpeg'],
+        copyToCacheDirectory: true,
+        multiple: true,
+      });
+      if (result.canceled) return;
+      const next = result.assets ?? [];
+      const error = evidenceError(next, saved.length);
+      setSelectionError(error);
+      setFiles(error ? [] : next);
+    } catch (error) {
+      setSelectionError(error instanceof Error ? error.message : 'Could not open the file picker.');
+    }
+  };
+  return (
+    <Card>
+      <AppText variant="label" style={{ marginBottom: SPACING.sm }}>Attachments</AppText>
+      <AppText variant="muted" style={{ marginBottom: SPACING.sm }}>Private file links expire after 5 minutes.</AppText>
+      {attachments.isLoading ? <Spinner /> : attachments.error ? <ErrorNote error={attachments.error} /> : saved.length ? (
+        <View style={{ gap: SPACING.xs }}>
+          {saved.map((file) => (
+            <Button
+              key={file.id}
+              title={`Open ${file.fileName}`}
+              variant="secondary"
+              onPress={() => { void Linking.openURL(file.url).catch(() => Alert.alert('Could not open evidence', 'Please try again.')); }}
+            />
+          ))}
+        </View>
+      ) : <AppText variant="muted">No files attached.</AppText>}
+      {canUpload && saved.length < MAX_EVIDENCE_FILES ? (
+        <View style={{ marginTop: SPACING.sm }}>
+          <AppText variant="muted" style={{ marginBottom: SPACING.xs }}>
+            Add up to {MAX_EVIDENCE_FILES - saved.length} more PDF or image files (5 MB each).
+          </AppText>
+          <Button title={files.length ? 'Choose different evidence files' : 'Add evidence'} variant="secondary" onPress={() => { void choose(); }} />
+          {files.map((file) => <AppText key={`${file.uri}-${file.name}`} variant="muted">{file.name}</AppText>)}
+          {selectionError ? <View accessibilityRole="alert"><AppText>{selectionError}</AppText></View> : null}
+          <ErrorNote error={upload.error} />
+          <Button title="Upload evidence" loading={upload.isPending} disabled={!files.length || Boolean(selectionError)} onPress={() => upload.mutate()} />
+        </View>
+      ) : null}
+    </Card>
+  );
+}
+
 // ── Ticket detail (students and staff) ───────────────────────
 
 export function TicketDetailScreen() {
@@ -362,12 +478,13 @@ export function TicketDetailScreen() {
           <AppText variant="muted" style={{ marginTop: 4 }}>{t.student_name}{t.student_number ? ` · ${t.student_number}` : ''} · {formatDateTime(t.created_at)}</AppText>
         </View>
         <Card><AppText variant="label" style={{ marginBottom: 6 }}>Description</AppText><AppText selectable>{t.description}</AppText></Card>
+        <TicketEvidencePanel ticket={t} canUpload={!staff && t.status === 'pending'} />
         {!!t.responses?.length ? (
           <View accessibilityLabel="Finance Office response history" style={{ gap: SPACING.sm }}>
             <AppText variant="label">Finance Office response history</AppText>
             {t.responses.map((r) => (
               <Card key={r.id}>
-                <AppText variant="label">{r.author_name || 'Finance Office'}</AppText>
+                <AppText variant="label">{firstName(r.author_name) || 'Finance Office'}</AppText>
                 <AppText variant="muted" style={{ marginTop: 4, fontSize: 11 }}>{formatDateTime(r.created_at)}</AppText>
                 <AppText selectable style={{ marginTop: 8 }}>{r.body}</AppText>
               </Card>
@@ -384,7 +501,7 @@ export function TicketDetailScreen() {
               onPress={() => Alert.alert('Cancel this ticket?', 'This also releases any appointment you booked.', [{ text: 'Keep it', style: 'cancel' }, { text: 'Cancel ticket', style: 'destructive', onPress: () => cancel.mutate() }])} />
           </>
         ) : null}
-        {t.attended_by_name ? <Card><AppText variant="muted">Attended by {t.attended_by_name.trim().split(/\s+/)[0]}</AppText></Card> : null}
+        {t.attended_by_name ? <Card><AppText variant="muted">Attended by {firstName(t.attended_by_name)}</AppText></Card> : null}
       </View>
     </Screen>
   );
