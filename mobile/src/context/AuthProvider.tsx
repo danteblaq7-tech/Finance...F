@@ -80,9 +80,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // The profile fetched for one specific account (user: null = the API refused or was unreachable).
   const [loaded, setLoaded] = useState<{ uid: string; user: User | null } | null>(null);
 
+  const pendingIdentity = sessionUid && authIdentity?.id === sessionUid && authIdentity.app_metadata?.must_change_password
+    ? authIdentity
+    : null;
   // The signed-in user is DERIVED: it only counts while it belongs to the account Supabase says is signed in.
-  const user = sessionUid && loaded?.uid === sessionUid ? loaded.user : null;
-  const loading = sessionUid === undefined || (sessionUid !== null && loaded?.uid !== sessionUid);
+  const user = sessionUid && loaded?.uid === sessionUid
+    ? loaded.user
+    : pendingIdentity
+      ? pendingPasswordUser(pendingIdentity)
+      : null;
+  const loading = sessionUid === undefined
+    || (sessionUid !== null && loaded?.uid !== sessionUid && !pendingIdentity);
 
   // One /auth/me at a time per user, shared between login() and the session listener below.
   const inflight = useRef<{ uid: string; promise: Promise<User> } | null>(null);
@@ -122,10 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Whenever a different account is signed in, load its profile (name, role…) from the API.
   useEffect(() => {
     if (!sessionUid || loaded?.uid === sessionUid) return;
-    if (authIdentity?.id === sessionUid && authIdentity.app_metadata?.must_change_password) {
-      setLoaded({ uid: sessionUid, user: pendingPasswordUser(authIdentity) });
-      return;
-    }
+    if (authIdentity?.id === sessionUid && authIdentity.app_metadata?.must_change_password) return;
     let cancelled = false;
     loadProfile(sessionUid)
       .then((u) => {
