@@ -5,6 +5,7 @@ import { Layout } from '@/components/Layout';
 import { Spinner } from '@/components/ui';
 import { LoginPage, RegisterPage } from '@/features/auth/AuthPages';
 import { ChangePasswordPage } from '@/features/auth/ChangePasswordPage';
+import { MfaPage } from '@/features/auth/MfaPage';
 import { ResetPasswordPage } from '@/features/auth/ResetPasswordPage';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
@@ -58,6 +59,7 @@ export default function App() {
           </Route>
 
           <Route element={<RequireAuth roles={['staff', 'admin']} />}>
+            <Route path="/staff/mfa" element={<MfaPage />} />
             <Route path="/staff/dashboard" element={<DashboardPage />} />
             <Route path="/staff/queue" element={<StaffQueuePage />} />
             <Route path="/staff/applications" element={<ApplicationsPage />} />

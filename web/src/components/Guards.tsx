@@ -12,11 +12,22 @@ export function RequireAuth({ roles }: { roles?: UserRole[] }) {
   if (user.must_change_password && location.pathname !== '/change-password') return <Navigate to="/change-password" replace />;
   if (!user.must_change_password && location.pathname === '/change-password') return <Navigate to={homeFor(user.role)} replace />;
   if (roles && !roles.includes(user.role)) return <Navigate to={homeFor(user.role)} replace />;
+  if (
+    ['staff', 'admin'].includes(user.role)
+    && user.mfa?.required
+    && (!user.mfa.enrolled || user.mfa.assuranceLevel !== 'aal2')
+    && location.pathname !== '/staff/mfa'
+  ) return <Navigate to="/staff/mfa" replace />;
   return <Outlet />;
 }
 
 export function RedirectIfAuthed() {
   const { user, loading } = useAuth();
   if (loading) return <Spinner />;
-  return user ? <Navigate to={user.must_change_password ? '/change-password' : homeFor(user.role)} replace /> : <Outlet />;
+  return user ? (
+    <Navigate
+      to={user.must_change_password ? '/change-password' : user.mfa?.required && (!user.mfa.enrolled || user.mfa.assuranceLevel !== 'aal2') ? '/staff/mfa' : homeFor(user.role)}
+      replace
+    />
+  ) : <Outlet />;
 }

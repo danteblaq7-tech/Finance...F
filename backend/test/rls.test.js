@@ -89,12 +89,12 @@ after(async () => {
   await pool.end();
 });
 
-async function asRole(userId, fn) {
+async function asRole(userId, fn, aal = 'aal1') {
   await client.query('RESET ROLE');
   await client.query(
     `SELECT set_config('request.jwt.claim.sub', $1, true),
             set_config('request.jwt.claims', $2, true)`,
-    [userId, JSON.stringify({ sub: userId, role: 'authenticated' })],
+    [userId, JSON.stringify({ sub: userId, role: 'authenticated', aal })],
   );
   await client.query('SET LOCAL ROLE authenticated');
   return fn();
@@ -139,6 +139,91 @@ test('staging RLS scopes tickets, responses, profiles, slots, and exam periods b
     assert.equal(visible.ticket, role === 'student' || role === 'staff' || role === 'admin' ? 1 : 0);
     assert.equal(visible.response, role === 'student' || role === 'staff' || role === 'admin' ? 1 : 0);
   }
+});
+
+test('staff and admins require AAL2 for direct RLS access while enrollment is pending or policy requires it', async () => {
+  await client.query(
+    `INSERT INTO public.staff_mfa_enrollments (user_id, enrollment_status)
+     VALUES ($1, 'pending') ON CONFLICT (user_id) DO NOTHING`,
+    [roleIds.staff],
+  );
+  const staffAal1 = await asRole(roleIds.staff, async () => {
+    const { rows: [counts] } = await client.query(
+      'SELECT count(*)::int AS profile_count FROM public.profiles WHERE id = $1',
+      [roleIds.staff],
+    );
+    return counts.profile_count;
+  });
+  assert.equal(staffAal1, 0);
+  const staffAal2 = await asRole(roleIds.staff, async () => {
+    const { rows: [counts] } = await client.query(
+      'SELECT count(*)::int AS profile_count FROM public.profiles WHERE id = $1',
+      [roleIds.staff],
+    );
+    return counts.profile_count;
+  }, 'aal2');
+  assert.equal(staffAal2, 0, 'pending enrollment is blocked even with an AAL2 token');
+  await client.query(
+    `UPDATE public.staff_mfa_enrollments
+     SET enrollment_status = 'verified', verified_at = now()
+     WHERE user_id = $1`,
+    [roleIds.staff],
+  );
+  const enrolledStaffAal2 = await asRole(roleIds.staff, async () => {
+    const { rows: [counts] } = await client.query(
+      'SELECT count(*)::int AS profile_count FROM public.profiles WHERE id = $1',
+      [roleIds.staff],
+    );
+    return counts.profile_count;
+  }, 'aal2');
+  assert.equal(enrolledStaffAal2, 1);
+
+  await client.query('UPDATE public.auth_security_settings SET require_staff_mfa = true WHERE singleton');
+  const adminAal1 = await asRole(roleIds.admin, async () => {
+    const { rows: [counts] } = await client.query(
+      'SELECT count(*)::int AS profile_count FROM public.profiles WHERE id = $1',
+      [roleIds.admin],
+    );
+    return counts.profile_count;
+  });
+  assert.equal(adminAal1, 0);
+  const adminAal2 = await asRole(roleIds.admin, async () => {
+    const { rows: [counts] } = await client.query(
+      'SELECT count(*)::int AS profile_count FROM public.profiles WHERE id = $1',
+      [roleIds.admin],
+    );
+    return counts.profile_count;
+  }, 'aal2');
+  assert.equal(adminAal2, 0, 'AAL2 from a non-TOTP factor is not enough without verified TOTP enrollment');
+  await client.query(
+    `INSERT INTO public.staff_mfa_enrollments (user_id, enrollment_status, verified_at)
+     VALUES ($1, 'verified', now()) ON CONFLICT (user_id) DO NOTHING`,
+    [roleIds.admin],
+  );
+  const enrolledAdminAal2 = await asRole(roleIds.admin, async () => {
+    const { rows: [counts] } = await client.query(
+      'SELECT count(*)::int AS profile_count FROM public.profiles WHERE id = $1',
+      [roleIds.admin],
+    );
+    return counts.profile_count;
+  }, 'aal2');
+  assert.equal(enrolledAdminAal2, 1);
+  const lecturerAal1 = await asRole(roleIds.lecturer, async () => {
+    const { rows: [counts] } = await client.query(
+      'SELECT count(*)::int AS profile_count FROM public.profiles WHERE id = $1',
+      [roleIds.lecturer],
+    );
+    return counts.profile_count;
+  });
+  assert.equal(lecturerAal1, 1);
+  const studentAal1 = await asRole(roleIds.student, async () => {
+    const { rows: [counts] } = await client.query(
+      'SELECT count(*)::int AS profile_count FROM public.profiles WHERE id = $1',
+      [roleIds.student],
+    );
+    return counts.profile_count;
+  });
+  assert.equal(studentAal1, 1);
 });
 
 test('storage and public-schedule policies are scoped and the statement bucket stays private', async () => {

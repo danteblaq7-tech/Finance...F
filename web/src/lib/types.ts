@@ -41,6 +41,12 @@ export interface User {
   year_of_study: string | null;
   role: UserRole;
   must_change_password?: boolean;
+  mfa?: {
+    enrolled: boolean;
+    pending?: boolean;
+    required: boolean;
+    assuranceLevel: 'aal1' | 'aal2';
+  };
 }
 
 export interface Ticket {

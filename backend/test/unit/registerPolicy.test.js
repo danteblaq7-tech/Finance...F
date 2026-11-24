@@ -29,6 +29,7 @@ mock.module(src('db.js'), {
       if (/SELECT .* FROM profiles WHERE id/.test(sql)) return student;
       throw new Error(`Unexpected query in test: ${sql}`);
     },
+    withTransaction: async (fn) => fn({ query: async () => ({ rows: [] }) }),
   },
 });
 mock.module(src('middleware/auth.js'), {

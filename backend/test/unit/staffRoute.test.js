@@ -19,8 +19,11 @@ const users = [
   { id: ids.lecturer, name: 'Lecturer', email: 'lecturer@example.test', role: 'lecturer', is_active: true, must_change_password: false },
 ];
 const authCalls = [];
+const auditActions = [];
+const factorsByUser = new Map();
 let createId = 0;
 let activeAdminCountOverride = null;
+let requireStaffMfa = false;
 
 const userById = (id) => users.find((user) => user.id === id);
 const rowForSql = (user, sql) => {
@@ -30,7 +33,16 @@ const rowForSql = (user, sql) => {
 
 async function transactionQuery(sql, params = []) {
   if (/pg_advisory_xact_lock/.test(sql)) return { rows: [] };
-  if (/INSERT INTO public\.staff_action_audit_log/.test(sql)) return { rows: [{ id: 'audit-row' }] };
+  if (/UPDATE public\.auth_security_settings/.test(sql)) {
+    requireStaffMfa = params[0];
+    return { rows: [{ require_staff_mfa: requireStaffMfa }] };
+  }
+  if (/DELETE FROM public\.staff_mfa_enrollments/.test(sql)) return { rows: [] };
+  if (/INSERT INTO public\.staff_mfa_enrollments/.test(sql)) return { rows: [{ user_id: params[0] }] };
+  if (/INSERT INTO public\.staff_action_audit_log/.test(sql)) {
+    auditActions.push(params[1]);
+    return { rows: [{ id: 'audit-row' }] };
+  }
   if (/SELECT id, role, is_active FROM profiles/.test(sql)) {
     const user = userById(params[0]);
     return { rows: user ? [{ id: user.id, role: user.role, is_active: user.is_active }] : [] };
@@ -58,8 +70,15 @@ async function transactionQuery(sql, params = []) {
 
 mock.module(src('db.js'), {
   namedExports: {
-    query: async () => users.filter((user) => ['staff', 'admin', 'lecturer'].includes(user.role)),
+    query: async () => users.filter((user) => ['staff', 'admin', 'lecturer'].includes(user.role)).map((user) => ({ ...user, mfa_enrolled: false })),
     queryOne: async (sql, params = []) => {
+      if (/SELECT require_staff_mfa FROM public\.auth_security_settings/.test(sql)) {
+        return { require_staff_mfa: requireStaffMfa };
+      }
+      if (/SELECT id, role FROM profiles WHERE id = \$1/.test(sql)) {
+        const user = userById(params[0]);
+        return user ? { id: user.id, role: user.role } : null;
+      }
       if (/SELECT 1 FROM profiles WHERE lower\(email\)/.test(sql)) {
         return users.some((user) => user.email === params[0]) ? { one: 1 } : null;
       }
@@ -112,6 +131,14 @@ mock.module(src('supabase.js'), {
             if (index >= 0) users.splice(index, 1);
             return { error: null };
           },
+          mfa: {
+            listFactors: async ({ userId }) => ({ data: { factors: factorsByUser.get(userId) ?? [] }, error: null }),
+            deleteFactor: async ({ id, userId }) => {
+              const factors = factorsByUser.get(userId) ?? [];
+              factorsByUser.set(userId, factors.filter((factor) => factor.id !== id));
+              return { error: null };
+            },
+          },
         },
       },
     },
@@ -140,8 +167,11 @@ beforeEach(() => {
     { id: ids.lecturer, name: 'Lecturer', email: 'lecturer@example.test', role: 'lecturer', is_active: true, must_change_password: false },
   );
   authCalls.length = 0;
+  auditActions.length = 0;
+  factorsByUser.clear();
   createId = 0;
   activeAdminCountOverride = null;
+  requireStaffMfa = false;
 });
 
 const api = async (path, token, options = {}) => {
@@ -202,5 +232,39 @@ describe('admin staff lifecycle', () => {
     activeAdminCountOverride = 1;
     const last = await api(`/api/admin/staff/${ids.otherAdmin}`, 'admin', { method: 'PATCH', body: { role: 'staff' } });
     assert.equal(last.status, 409);
+  });
+
+  test('only admins may view or change the staff MFA policy', async () => {
+    for (const role of ['student', 'staff', 'lecturer']) {
+      assert.equal((await api('/api/admin/staff/mfa-policy', role)).status, 403);
+      assert.equal((await api('/api/admin/staff/mfa-policy', role, { method: 'PATCH', body: { required: true } })).status, 403);
+    }
+
+    assert.deepEqual((await api('/api/admin/staff/mfa-policy', 'admin')).json, { required: false });
+    const updated = await api('/api/admin/staff/mfa-policy', 'admin', { method: 'PATCH', body: { required: true } });
+    assert.equal(updated.status, 200);
+    assert.deepEqual(updated.json, { required: true });
+    assert.deepEqual(auditActions, ['staff_mfa_policy_changed']);
+  });
+
+  test('only admins can reset another staff/admin authenticator; the action deletes factors and is audited', async () => {
+    users.push({ id: ids.otherAdmin, name: 'Other Admin', email: 'other-admin@example.test', role: 'admin', is_active: true, must_change_password: false });
+    factorsByUser.set(ids.staff, [{ id: 'staff-totp', factor_type: 'totp', status: 'verified' }]);
+    factorsByUser.set(ids.otherAdmin, [{ id: 'admin-totp', factor_type: 'totp', status: 'verified' }]);
+
+    for (const role of ['student', 'staff', 'lecturer']) {
+      assert.equal((await api(`/api/admin/staff/${ids.staff}/mfa-reset`, role, { method: 'POST' })).status, 403);
+    }
+    assert.equal((await api(`/api/admin/staff/${ids.admin}/mfa-reset`, 'admin', { method: 'POST' })).status, 409);
+
+    const reset = await api(`/api/admin/staff/${ids.staff}/mfa-reset`, 'admin', { method: 'POST' });
+    assert.equal(reset.status, 200);
+    assert.deepEqual(reset.json, { ok: true, removedFactors: 1 });
+    assert.equal(factorsByUser.get(ids.staff).length, 0);
+    assert.deepEqual(auditActions, ['staff_mfa_reset']);
+
+    const resetAdmin = await api(`/api/admin/staff/${ids.otherAdmin}/mfa-reset`, 'admin', { method: 'POST' });
+    assert.equal(resetAdmin.status, 200);
+    assert.equal(factorsByUser.get(ids.otherAdmin).length, 0);
   });
 });

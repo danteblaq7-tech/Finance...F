@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button, Empty, ErrorNote, Field, PageHeader, Spinner } from '@/components/ui';
+import { useAuth } from '@/features/auth/AuthProvider';
 import { api } from '@/lib/api';
 import type { UserRole } from '@/lib/types';
 
@@ -11,6 +13,8 @@ interface StaffAccount {
   email: string;
   role: StaffRole;
   is_active: boolean;
+  mfa_enrolled: boolean;
+  mfa_pending?: boolean;
 }
 
 interface CreatedStaff {
@@ -28,6 +32,8 @@ const roles: StaffRole[] = ['staff', 'admin', 'lecturer'];
 
 export function StaffManagementPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { user, refreshProfile } = useAuth();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<StaffRole>('staff');
@@ -37,6 +43,10 @@ export function StaffManagementPage() {
   const staffQuery = useQuery({
     queryKey: ['admin', 'staff'],
     queryFn: () => api.get<{ staff: StaffAccount[] }>('/admin/staff'),
+  });
+  const mfaPolicyQuery = useQuery({
+    queryKey: ['admin', 'staff-mfa-policy'],
+    queryFn: () => api.get<{ required: boolean }>('/admin/staff/mfa-policy'),
   });
   const createStaff = useMutation({
     mutationFn: () => api.post<{ staff: StaffAccount; temporaryPassword: string }>('/admin/staff', { name, email, role }),
@@ -60,6 +70,23 @@ export function StaffManagementPage() {
       void queryClient.invalidateQueries({ queryKey: ['admin', 'staff'] });
     },
   });
+  const updateMfaPolicy = useMutation({
+    mutationFn: async (required: boolean) => {
+      const result = await api.patch<{ required: boolean }>('/admin/staff/mfa-policy', { required });
+      if (required) {
+        const updated = await refreshProfile();
+        if (updated.mfa?.required && updated.mfa.assuranceLevel !== 'aal2') navigate('/staff/mfa', { replace: true });
+      }
+      return result;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'staff-mfa-policy'] });
+    },
+  });
+  const resetMfa = useMutation({
+    mutationFn: (id: string) => api.post<{ ok: boolean; removedFactors: number }>(`/admin/staff/${id}/mfa-reset`),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['admin', 'staff'] }),
+  });
 
   function submitCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -70,6 +97,26 @@ export function StaffManagementPage() {
   return (
     <div>
       <PageHeader title="Staff management" subtitle="Create staff accounts and manage staff roles and access." />
+
+      <section className="card mb-6 space-y-3" aria-labelledby="staff-mfa-policy-heading">
+        <div>
+          <h2 id="staff-mfa-policy-heading" className="text-base font-bold">Staff and admin two-factor authentication</h2>
+          <p className="mt-1 text-sm text-ink-secondary">When enabled, every staff and admin account must enroll an authenticator before using the app.</p>
+        </div>
+        {mfaPolicyQuery.isLoading ? <Spinner label="Loading MFA policy…" /> : null}
+        <ErrorNote error={mfaPolicyQuery.error ?? updateMfaPolicy.error} />
+        {mfaPolicyQuery.data && (
+          <label className="flex items-center gap-3 text-sm">
+            <input
+              type="checkbox"
+              checked={mfaPolicyQuery.data.required}
+              disabled={updateMfaPolicy.isPending}
+              onChange={(event) => updateMfaPolicy.mutate(event.target.checked)}
+            />
+            Require two-factor authentication for all staff and admins
+          </label>
+        )}
+      </section>
 
       <section className="card mb-6 space-y-4" aria-labelledby="create-staff-heading">
         <div>
@@ -111,12 +158,13 @@ export function StaffManagementPage() {
         {staffQuery.data?.staff.length === 0 && <Empty>No staff accounts found.</Empty>}
         {staffQuery.data && staffQuery.data.staff.length > 0 && (
           <div className="overflow-x-auto rounded-lg border border-line">
-            <table className="w-full min-w-[700px] text-left text-sm">
+            <table className="w-full min-w-[850px] text-left text-sm">
               <thead className="bg-bg-tertiary text-xs uppercase text-ink-secondary">
                 <tr>
                   <th scope="col" className="px-4 py-3">Name / email</th>
                   <th scope="col" className="px-4 py-3">Role</th>
                   <th scope="col" className="px-4 py-3">Status</th>
+                  <th scope="col" className="px-4 py-3">2FA</th>
                   <th scope="col" className="px-4 py-3">Actions</th>
                 </tr>
               </thead>
@@ -155,14 +203,28 @@ export function StaffManagementPage() {
                           {account.is_active ? 'Active' : 'Inactive'}
                         </span>
                       </td>
+                      <td className="px-4 py-3">{account.mfa_enrolled ? 'Enrolled' : account.mfa_pending ? 'Setup pending' : 'Not enrolled'}</td>
                       <td className="px-4 py-3">
-                        <Button
-                          variant={account.is_active ? 'danger' : 'secondary'}
-                          loading={updateStaff.isPending}
-                          onClick={() => updateStaff.mutate({ id: account.id, changes: { isActive: !account.is_active } })}
-                        >
-                          {account.is_active ? 'Deactivate' : 'Reactivate'}
-                        </Button>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            variant={account.is_active ? 'danger' : 'secondary'}
+                            loading={updateStaff.isPending}
+                            onClick={() => updateStaff.mutate({ id: account.id, changes: { isActive: !account.is_active } })}
+                          >
+                            {account.is_active ? 'Deactivate' : 'Reactivate'}
+                          </Button>
+                          {(account.mfa_enrolled || account.mfa_pending) && account.id !== user?.id && (
+                            <Button
+                              variant="secondary"
+                              loading={resetMfa.isPending}
+                              onClick={() => {
+                                if (window.confirm(`Reset the authenticator for ${account.email}? This signs out their sessions.`)) resetMfa.mutate(account.id);
+                              }}
+                            >
+                              Reset MFA
+                            </Button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -172,6 +234,7 @@ export function StaffManagementPage() {
           </div>
         )}
         <ErrorNote error={updateStaff.error} />
+        <ErrorNote error={resetMfa.error} />
       </section>
     </div>
   );

@@ -13,16 +13,23 @@ export default function AppLayout() {
   const mustChangePassword = Boolean(user.must_change_password);
   const staff = user.role === 'staff' || user.role === 'admin';
   const invigilator = staff || user.role === 'lecturer';
+  const mfa = user.mfa;
+  const mfaBlocked = staff && Boolean(mfa?.required && (!mfa.enrolled || mfa.assuranceLevel !== 'aal2'));
+  const items = mustChangePassword
+    ? navFor(user.role).filter((item) => item.href === '/profile')
+    : mfaBlocked
+      ? navFor(user.role).filter((item) => item.href === '/mfa')
+      : navFor(user.role);
   return (
-    <Shell items={mustChangePassword ? navFor(user.role).filter((item) => item.href === '/profile') : navFor(user.role)}>
+    <Shell items={items}>
       <Stack screenOptions={{ headerShown: false, animation: 'fade', contentStyle: { backgroundColor: colors.bg_secondary } }}>
-        <Stack.Protected guard={!mustChangePassword && user.role === 'student'}>
+        <Stack.Protected guard={!mustChangePassword && !mfaBlocked && user.role === 'student'}>
           <Stack.Screen name="tickets/index" />
           <Stack.Screen name="tickets/new" />
           <Stack.Screen name="tickets/[id]" />
           <Stack.Screen name="exam" />
         </Stack.Protected>
-        <Stack.Protected guard={!mustChangePassword && staff}>
+        <Stack.Protected guard={!mustChangePassword && !mfaBlocked && staff}>
           <Stack.Screen name="dashboard" />
           <Stack.Screen name="queue/index" />
           <Stack.Screen name="queue/[id]" />
@@ -31,12 +38,17 @@ export default function AppLayout() {
           <Stack.Screen name="periods" />
           <Stack.Screen name="slots" />
         </Stack.Protected>
-        <Stack.Protected guard={!mustChangePassword && invigilator}>
+        <Stack.Protected guard={!mustChangePassword && !mfaBlocked && invigilator}>
           <Stack.Screen name="scan" />
           <Stack.Screen name="units/index" />
           <Stack.Screen name="units/[id]" />
         </Stack.Protected>
-        <Stack.Screen name="profile" />
+        <Stack.Protected guard={!mustChangePassword && staff}>
+          <Stack.Screen name="mfa" />
+        </Stack.Protected>
+        <Stack.Protected guard={mustChangePassword || !mfaBlocked}>
+          <Stack.Screen name="profile" />
+        </Stack.Protected>
       </Stack>
     </Shell>
   );

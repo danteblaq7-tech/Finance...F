@@ -155,7 +155,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [logout]);
 
   // Live updates from the shared database.
-  useRealtimeSync(!!user && !user.must_change_password);
+  useRealtimeSync(
+    !!user
+    && !user.must_change_password
+    && (!user.mfa?.required || (user.mfa.enrolled && user.mfa.assuranceLevel === 'aal2')),
+  );
 
   const login = useCallback(async (email: string, password: string): Promise<User> => {
     const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });

@@ -5,6 +5,12 @@ import { homeFor } from '@/lib/nav';
 /** The app's "/" entry: send each person to the right home screen for their role. */
 export default function Index() {
   const { user } = useAuth();
-  const href = !user ? '/login' : user.must_change_password ? '/profile' : homeFor(user.role);
+  const href = !user
+    ? '/login'
+    : user.must_change_password
+      ? '/profile'
+      : user.mfa?.required && (!user.mfa.enrolled || user.mfa.assuranceLevel !== 'aal2')
+        ? '/mfa'
+        : homeFor(user.role);
   return <Redirect href={href} />;
 }

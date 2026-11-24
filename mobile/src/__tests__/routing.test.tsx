@@ -15,6 +15,7 @@ function fakeApi(opts: { me?: unknown }) {
     let status = 200;
     let body: unknown = {};
     if (path === '/auth/me') body = opts.me ? { user: opts.me } : { error: 'nope' };
+    else if (path === '/auth/mfa/status') body = { mfa: { enrolled: true, required: true, assuranceLevel: 'aal1', factorId: 'totp-1' } };
     else if (path === '/auth/me' && !opts.me) status = 401;
     else if (path.startsWith('/tickets')) body = { tickets: [] };
     else if (path.startsWith('/applications')) body = { applications: [] };
@@ -53,6 +54,15 @@ describe('role-based routing (real src/app routes)', () => {
     await mountApp();
     expect(await screen.findByText('Ticket Queue')).toBeTruthy();
     pathMatcher().toHavePathname('/queue');
+  });
+
+  it('gates enrolled staff to the TOTP challenge before showing protected mobile screens', async () => {
+    __fake.session = { access_token: 'jwt-staff-mfa', user: { id: 'u2' } };
+    fakeApi({ me: { ...staff, mfa: { enrolled: true, required: true, assuranceLevel: 'aal1' } } });
+    await mountApp();
+    expect(await screen.findByText('Enter the current six-digit code from your authenticator app to continue.')).toBeTruthy();
+    pathMatcher().toHavePathname('/mfa');
+    expect(screen.queryByText('Ticket Queue')).toBeNull();
   });
 
   it('routes a forced-password account to profile without requesting its protected profile endpoint', async () => {

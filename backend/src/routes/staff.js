@@ -7,6 +7,7 @@ import { asyncHandler, HttpError } from '../middleware/errors.js';
 import { supabaseAdmin } from '../supabase.js';
 import { auditStaffAction } from '../auditLog.js';
 import { logger } from '../logger.js';
+import { listAuthFactors } from '../mfa.js';
 
 const router = Router();
 router.use(requireAuth, requireAdmin);
@@ -21,6 +22,7 @@ const updateSchema = z.object({
   role: z.enum(staffRoles).optional(),
   isActive: z.boolean().optional(),
 }).refine((value) => value.role !== undefined || value.isActive !== undefined, 'Provide a role or active-state change.');
+const mfaPolicySchema = z.object({ required: z.boolean() }).strict();
 
 async function setAuthBan(userId, duration) {
   const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, { ban_duration: duration });
@@ -31,10 +33,80 @@ async function setAuthBan(userId, duration) {
 }
 
 router.get(
+  '/mfa-policy',
+  asyncHandler(async (_req, res) => {
+    const policy = await queryOne(
+      'SELECT require_staff_mfa FROM public.auth_security_settings WHERE singleton = true',
+    );
+    if (!policy) throw new HttpError(500, 'The staff MFA setting is missing. Apply the staff MFA migration.');
+    res.json({ required: policy.require_staff_mfa });
+  }),
+);
+
+router.patch(
+  '/mfa-policy',
+  asyncHandler(async (req, res) => {
+    const body = mfaPolicySchema.parse(req.body);
+    const policy = await withTransaction(async (client) => {
+      const { rows: [updated] } = await client.query(
+        `UPDATE public.auth_security_settings
+         SET require_staff_mfa = $1, updated_by = $2, updated_at = now()
+         WHERE singleton = true
+         RETURNING require_staff_mfa`,
+        [body.required, req.user.id],
+      );
+      if (!updated) throw new HttpError(500, 'The staff MFA setting is missing. Apply the staff MFA migration.');
+      await auditStaffAction(client, {
+        actorId: req.user.id,
+        action: 'staff_mfa_policy_changed',
+        entityType: 'auth_security_settings',
+        entityId: req.user.id,
+        metadata: { required: updated.require_staff_mfa },
+      });
+      return updated;
+    });
+    res.json({ required: policy.require_staff_mfa });
+  }),
+);
+
+router.post(
+  '/:id/mfa-reset',
+  asyncHandler(async (req, res) => {
+    const id = z.string().uuid().parse(req.params.id);
+    if (id === req.user.id) throw new HttpError(409, 'Ask another admin to reset your authenticator.');
+    const target = await queryOne('SELECT id, role FROM profiles WHERE id = $1', [id]);
+    if (!target || !['staff', 'admin'].includes(target.role)) throw new HttpError(404, 'Staff or admin account not found.');
+
+    const factors = await listAuthFactors(id);
+    for (const factor of factors) {
+      const { error } = await supabaseAdmin.auth.admin.mfa.deleteFactor({ id: factor.id, userId: id });
+      if (error) {
+        logger.error('staff_mfa_reset_failed', { errorCode: error.code });
+        throw new HttpError(502, "Could not remove the account's authenticator. No database enrollment state was changed.");
+      }
+    }
+
+    await withTransaction(async (client) => {
+      await client.query('DELETE FROM public.staff_mfa_enrollments WHERE user_id = $1', [id]);
+      await auditStaffAction(client, {
+        actorId: req.user.id,
+        action: 'staff_mfa_reset',
+        entityType: 'profile',
+        entityId: id,
+        metadata: { factorsRemoved: factors.length },
+      });
+    });
+    res.json({ ok: true, removedFactors: factors.length });
+  }),
+);
+
+router.get(
   '/',
   asyncHandler(async (_req, res) => {
     const staff = await query(
-      `SELECT ${PUBLIC_USER_COLUMNS}, is_active
+      `SELECT ${PUBLIC_USER_COLUMNS}, is_active,
+              COALESCE((SELECT e.enrollment_status = 'verified' FROM public.staff_mfa_enrollments e WHERE e.user_id = profiles.id), false) AS mfa_enrolled,
+              COALESCE((SELECT e.enrollment_status = 'pending' FROM public.staff_mfa_enrollments e WHERE e.user_id = profiles.id), false) AS mfa_pending
        FROM profiles
        WHERE role = ANY($1::text[])
        ORDER BY name`,

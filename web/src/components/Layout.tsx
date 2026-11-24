@@ -1,5 +1,5 @@
 import {
-  CalendarClock, ClipboardCheck, ClipboardList, CreditCard, FileSpreadsheet, GraduationCap, LogOut, Mail, Users,
+  CalendarClock, ClipboardCheck, ClipboardList, CreditCard, FileSpreadsheet, GraduationCap, LogOut, Mail, ShieldCheck, Users,
   Inbox, LayoutDashboard, PlusCircle, ScanLine, type LucideIcon,
 } from 'lucide-react';
 import { NavLink, Outlet } from 'react-router-dom';
@@ -30,6 +30,7 @@ const STAFF_NAV: NavItem[] = [
   { to: '/scan', label: 'Scan Cards', icon: ScanLine },
   { to: '/units', label: 'Exam Units', icon: ClipboardCheck },
   { to: '/staff/templates', label: 'Email Templates', icon: Mail },
+  { to: '/staff/mfa', label: 'Two-factor authentication', icon: ShieldCheck },
 ];
 
 const STAFF_MANAGEMENT_NAV: NavItem = { to: '/staff/management', label: 'Staff management', icon: Users };

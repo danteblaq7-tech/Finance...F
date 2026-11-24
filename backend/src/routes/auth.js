@@ -9,6 +9,7 @@ import { createAnonClient, supabaseAdmin } from '../supabase.js';
 import { assertStudentNumberAllowed } from '../studentRegistration.js';
 import { normalizeStudentNumber } from '../normalizeStudentNumber.js';
 import { logger } from '../logger.js';
+import { listVerifiedTotpFactors, markMfaEnrolled, markMfaEnrollmentPending } from '../mfa.js';
 
 // Sign-IN is handled by Supabase Auth directly from the web/mobile apps (supabase.auth.signInWithPassword),
 // which also gives them automatic token refresh. This router covers what must stay on the server:
@@ -31,6 +32,14 @@ const passwordLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many attempts. Please try again in a few minutes.' },
+});
+const mfaEnrollmentLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: process.env.NODE_ENV === 'test' ? 1000 : 10,
+  keyGenerator: (req) => req.user.id,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many authenticator setup attempts. Please try again later.' },
 });
 
 const registerSchema = z.object({
@@ -92,6 +101,50 @@ router.post(
 );
 
 router.get('/me', requireAuth, (req, res) => res.json({ user: req.user }));
+
+router.get(
+  '/mfa/status',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    if (!['staff', 'admin'].includes(req.user.role)) throw new HttpError(403, 'Two-factor authentication is available to staff and admins only.');
+    const factors = await listVerifiedTotpFactors(req.user.id);
+    if (factors.length && !req.user.mfa.enrolled) await markMfaEnrolled(req.user.id);
+    res.json({
+      mfa: {
+        ...req.user.mfa,
+        enrolled: req.user.mfa.enrolled || factors.length > 0,
+        pending: req.user.mfa.pending && factors.length === 0,
+        factorId: factors[0]?.id ?? null,
+      },
+    });
+  }),
+);
+
+router.post(
+  '/mfa/begin-enrollment',
+  requireAuth,
+  mfaEnrollmentLimiter,
+  asyncHandler(async (req, res) => {
+    if (!['staff', 'admin'].includes(req.user.role)) throw new HttpError(403, 'Two-factor authentication is available to staff and admins only.');
+    if (req.user.mfa.enrolled) throw new HttpError(409, 'An authenticator is already active. Verify a code instead.');
+    await markMfaEnrollmentPending(req.user.id);
+    res.json({ pending: true });
+  }),
+);
+
+router.post(
+  '/mfa/complete-enrollment',
+  requireAuth,
+  mfaEnrollmentLimiter,
+  asyncHandler(async (req, res) => {
+    if (!['staff', 'admin'].includes(req.user.role)) throw new HttpError(403, 'Two-factor authentication is available to staff and admins only.');
+    if (req.user.mfa.assuranceLevel !== 'aal2') throw new HttpError(403, 'Verify your authenticator code before completing setup.');
+    const factors = await listVerifiedTotpFactors(req.user.id);
+    if (!factors.length) throw new HttpError(400, 'No verified authenticator was found. Complete the verification step and try again.');
+    await markMfaEnrolled(req.user.id);
+    res.json({ mfa: { enrolled: true, required: true, assuranceLevel: req.user.mfa.assuranceLevel } });
+  }),
+);
 
 router.post(
   '/change-password',

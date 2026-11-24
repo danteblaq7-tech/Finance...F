@@ -25,6 +25,7 @@ const STAFF: NavItem[] = [
   { href: '/slots', label: 'Appointment Slots', icon: 'time-outline' },
   { href: '/scan', label: 'Scan Cards', icon: 'scan-outline' },
   { href: '/units', label: 'Exam Units', icon: 'checkbox-outline' },
+  { href: '/mfa', label: 'Two-factor authentication', icon: 'shield-checkmark-outline' },
 ];
 const ACCOUNT: NavItem = { href: '/profile', label: 'Account', icon: 'person-circle-outline' };
 

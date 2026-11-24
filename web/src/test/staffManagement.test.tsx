@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
   patch: vi.fn(),
+  refreshProfile: vi.fn(),
 }));
 
 vi.mock('@/features/auth/AuthProvider', () => ({
@@ -22,8 +23,10 @@ vi.mock('@/features/auth/AuthProvider', () => ({
       email: `${mocks.role}@example.test`,
       role: mocks.role,
       must_change_password: false,
+      mfa: { enrolled: false, required: false, assuranceLevel: 'aal1' },
     },
     logout: vi.fn(),
+    refreshProfile: mocks.refreshProfile,
   }),
 }));
 
@@ -37,7 +40,7 @@ vi.mock('@/lib/api', () => ({
 
 const staff = [
   { id: 'staff-1', name: 'Finance Officer', email: 'finance@example.test', role: 'staff' as const, is_active: true },
-  { id: 'admin-1', name: 'Campus Admin', email: 'admin@example.test', role: 'admin' as const, is_active: false },
+  { id: 'admin-1', name: 'Campus Admin', email: 'admin@example.test', role: 'admin' as const, is_active: false, mfa_enrolled: false },
 ];
 
 function renderPage() {
@@ -62,9 +65,10 @@ function renderPage() {
 describe('StaffManagementPage', () => {
   beforeEach(() => {
     mocks.role = 'admin';
-    mocks.get.mockReset().mockResolvedValue({ staff });
+    mocks.get.mockReset().mockImplementation(async (path: string) => path === '/admin/staff/mfa-policy' ? { required: false } : { staff });
     mocks.post.mockReset();
     mocks.patch.mockReset();
+    mocks.refreshProfile.mockReset().mockResolvedValue({ role: 'admin', mfa: { required: false, assuranceLevel: 'aal1' } });
   });
 
   it('shows the management page and navigation entry to admins', async () => {
@@ -117,6 +121,23 @@ describe('StaffManagementPage', () => {
     await waitFor(() => expect(mocks.patch).toHaveBeenCalledWith('/admin/staff/staff-1', { role: 'admin' }));
     await user.click(screen.getByRole('button', { name: 'Reactivate' }));
     await waitFor(() => expect(mocks.patch).toHaveBeenCalledWith('/admin/staff/admin-1', { isActive: true }));
+  });
+
+  it('lets admins enable the MFA requirement and reset another account MFA', async () => {
+    mocks.get.mockImplementation(async (path: string) => path === '/admin/staff/mfa-policy'
+      ? { required: false }
+      : { staff: [{ ...staff[0], mfa_enrolled: true }] });
+    mocks.patch.mockResolvedValue({ required: true });
+    mocks.post.mockResolvedValue({ ok: true, removedFactors: 1 });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderPage();
+    const user = userEvent.setup();
+    await screen.findByText('Enrolled');
+    await user.click(screen.getByRole('checkbox', { name: /require two-factor authentication/i }));
+    await waitFor(() => expect(mocks.patch).toHaveBeenCalledWith('/admin/staff/mfa-policy', { required: true }));
+    await user.click(screen.getByRole('button', { name: 'Reset MFA' }));
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledWith('/admin/staff/staff-1/mfa-reset'));
+    confirm.mockRestore();
   });
 
   it.each([
