@@ -21,7 +21,11 @@
         "foregroundImage": "./assets/finesse.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "ke.ac.finesse.mobile"
+      "package": "ke.ac.finesse.mobile",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -40,6 +44,17 @@
       ],
       "@react-native-community/datetimepicker"
     ],
-    "scheme": "finesse"
+    "scheme": "finesse",
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "87609bc6-1be9-445b-a243-4fd06efe926f"
+      }
+    },
+    "owner": "danteblaq"
   }
 }
