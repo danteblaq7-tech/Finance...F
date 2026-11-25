@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -64,5 +64,31 @@ describe('UnitsPage: add one student to a unit', () => {
     await user.type(box, 'com/072/23');
     await user.click(screen.getByRole('button', { name: /^Add$/ }));
     expect(await screen.findByText('COM/072/23 is already on this register.')).toBeInTheDocument();
+  });
+
+  it('warns with unmatched lecturer emails after unit-dates import without creating accounts', async () => {
+    get.mockImplementation(async (p: string) => {
+      if (p.startsWith('/exam-periods')) return { periods: [period] };
+      if (p === '/exam-units') return { period, units: [] };
+      if (p === '/lecturers') return { lecturers: [] };
+      throw new Error(p);
+    });
+    post.mockResolvedValue({ created: 1, lecturersLinked: 0, unknownLecturers: ['missing@example.test'] });
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter><UnitsPage /></MemoryRouter></QueryClientProvider>);
+    const user = userEvent.setup();
+    const fileInput = await screen.findByLabelText('2. Unit dates, venues and lecturers file');
+    Object.defineProperty(fileInput, 'files', {
+      configurable: true,
+      value: [{ name: 'units.csv', text: async () => 'unit_code,lecturers\nCSC101,missing@example.test' }],
+    });
+    fireEvent.change(fileInput);
+    await user.click(await screen.findByRole('button', { name: 'Import 1 rows' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('missing@example.test');
+    expect(screen.getByRole('alert')).toHaveTextContent('imports do not create accounts');
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(post).toHaveBeenCalledWith('/exam-units/import', {
+      periodId: 'p1',
+      rows: [{ unit_code: 'CSC101', unit_name: '', exam_date: null, start_time: null, end_time: null, venue: '', lecturers: ['missing@example.test'] }],
+    });
   });
 });

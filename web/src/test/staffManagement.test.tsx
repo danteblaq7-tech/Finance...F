@@ -41,6 +41,7 @@ vi.mock('@/lib/api', () => ({
 const staff = [
   { id: 'staff-1', name: 'Finance Officer', email: 'finance@example.test', role: 'staff' as const, is_active: true },
   { id: 'admin-1', name: 'Campus Admin', email: 'admin@example.test', role: 'admin' as const, is_active: false, mfa_enrolled: false },
+  { id: 'lecturer-1', name: 'Exam Lecturer', email: 'lecturer@example.test', role: 'lecturer' as const, is_active: true },
 ];
 
 function renderPage() {
@@ -76,6 +77,8 @@ describe('StaffManagementPage', () => {
     expect(await screen.findByRole('heading', { name: 'Staff management' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Staff management' })).toBeInTheDocument();
     expect(await screen.findByText('finance@example.test')).toBeInTheDocument();
+    expect(await screen.findByText('lecturer@example.test')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Role for lecturer@example.test' })).toHaveValue('lecturer');
     expect(screen.getByText('Inactive')).toBeInTheDocument();
     expect(mocks.get).toHaveBeenCalledWith('/admin/staff');
   });

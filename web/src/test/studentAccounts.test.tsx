@@ -117,6 +117,36 @@ describe('StudentAccountsPage', () => {
     await waitFor(() => expect(mocks.get).toHaveBeenCalledWith(expect.stringContaining('q=COM%2F072%2F23')));
   });
 
+  it.each(['admin', 'staff'] as const)('shows registered students without accounts to %s as a read-only paginated list', async (role) => {
+    mocks.role = role;
+    mocks.get.mockImplementation(async (path: string) => {
+      if (path.includes('/registered-not-signed-up')) {
+        const page = Number(new URLSearchParams(path.split('?')[1]).get('page'));
+        return {
+          students: [{ student_number: page === 1 ? 'COM/080/23' : 'COM/081/23', units: ['CSC101 · Introduction'] }],
+          page,
+          pageSize: 25,
+          total: 26,
+          totalPages: 2,
+        };
+      }
+      return { students: [student], page: 1, pageSize: 25, total: 1, totalPages: 1 };
+    });
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('tab', { name: 'Registered, not signed up' }));
+    expect(await screen.findByText('COM/080/23')).toBeInTheDocument();
+    expect(screen.getByText('CSC101 · Introduction')).toBeInTheDocument();
+    expect(mocks.get).toHaveBeenCalledWith('/admin/students/registered-not-signed-up?page=1&pageSize=25');
+    expect(screen.queryByRole('button', { name: 'Deactivate' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Send password reset' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    expect(await screen.findByText('COM/081/23')).toBeInTheDocument();
+    expect(mocks.get).toHaveBeenCalledWith('/admin/students/registered-not-signed-up?page=2&pageSize=25');
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(mocks.patch).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['student', 'Student home'],
     ['lecturer', 'Lecturer home'],

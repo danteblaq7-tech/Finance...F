@@ -192,6 +192,9 @@ describe('admin staff lifecycle', () => {
     }
 
     assert.equal((await api('/api/admin/staff', 'admin')).status, 200);
+    const listed = await api('/api/admin/staff', 'admin');
+    assert.equal(listed.status, 200);
+    assert.ok(listed.json.staff.some((user) => user.role === 'lecturer' && user.email === 'lecturer@example.test'));
   });
 
   test('admin creates finance and lecturer accounts with one-time passwords and mandatory password changes', async () => {

@@ -11,6 +11,11 @@ import { clock, cn, formatDateTime, isStaffRole } from '@/lib/utils';
 
 const BATCH = 5000; // rows per request (the server's limit)
 
+interface ImportOutcome {
+  message: string;
+  warning?: string;
+}
+
 export function UnitsPage() {
   const { user } = useAuth();
   const staff = isStaffRole(user?.role);
@@ -286,7 +291,10 @@ function SetupPanel({ periodId }: { periodId: string }) {
               const r = await api.post<{ created: number; lecturersLinked: number; unknownLecturers: string[] }>('/exam-units/import', { periodId, rows: rows.slice(i, i + BATCH) });
               created += r.created; linked += r.lecturersLinked; r.unknownLecturers.forEach((e) => unknown.add(e));
             }
-            return `${rows.length} units read: ${created} new, ${linked} lecturer links.${unknown.size ? ` No lecturer account for: ${[...unknown].join(', ')}.` : ''}`;
+            return {
+              message: `${rows.length} units read: ${created} new, ${linked} lecturer links.`,
+              ...(unknown.size ? { warning: `No lecturer account found for: ${[...unknown].join(', ')}. These lecturers were not linked; imports do not create accounts.` } : {}),
+            };
           }}
           periodId={periodId}
         />
@@ -298,15 +306,15 @@ function SetupPanel({ periodId }: { periodId: string }) {
 
 function ImportBox<T>({ title, help, template, templateName, parse, send, periodId }: {
   title: string; help: string; template: string[][]; templateName: string; periodId: string;
-  parse: (text: string) => ImportResult<T>; send: (rows: T[]) => Promise<string>;
+  parse: (text: string) => ImportResult<T>; send: (rows: T[]) => Promise<string | ImportOutcome>;
 }) {
   const qc = useQueryClient();
   const file = useRef<HTMLInputElement>(null);
   const [parsed, setParsed] = useState<{ name: string; result: ImportResult<T> } | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<ImportOutcome | null>(null);
   const run = useMutation({
     mutationFn: () => send(parsed!.result.rows),
-    onSuccess: (m) => { setMessage(m); setParsed(null); if (file.current) file.current.value = ''; void qc.invalidateQueries({ queryKey: ['units'] }); void qc.invalidateQueries({ queryKey: ['register'] }); },
+    onSuccess: (result) => { setMessage(typeof result === 'string' ? { message: result } : result); setParsed(null); if (file.current) file.current.value = ''; void qc.invalidateQueries({ queryKey: ['units'] }); void qc.invalidateQueries({ queryKey: ['register'] }); },
   });
 
   async function pick(e: ChangeEvent<HTMLInputElement>) {
@@ -339,7 +347,8 @@ function ImportBox<T>({ title, help, template, templateName, parse, send, period
           <Button loading={run.isPending} disabled={parsed.result.rows.length === 0} onClick={() => run.mutate()}>Import {parsed.result.rows.length} rows</Button>
         </div>
       )}
-      {message && <p role="status" className="mt-3 text-xs text-brand-green">{message}</p>}
+      {message && <p role="status" className="mt-3 text-xs text-brand-green">{message.message}</p>}
+      {message?.warning && <p role="alert" className="mt-2 rounded-md border border-brand-amber/40 bg-brand-amber/10 p-3 text-xs text-brand-amber">{message.warning}</p>}
       {run.isError && <div className="mt-3"><ErrorNote error={run.error} /></div>}
     </div>
   );

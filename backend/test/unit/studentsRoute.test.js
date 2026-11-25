@@ -14,6 +14,7 @@ const records = [];
 const auditActions = [];
 const authCalls = [];
 const emailCalls = [];
+let registeredCandidatesTotal = 26;
 
 function resetRecords() {
   records.splice(0, records.length,
@@ -38,8 +39,14 @@ mock.module(src('config.js'), {
 });
 mock.module(src('db.js'), {
   namedExports: {
-    query: async () => [{ ...student() }],
+    query: async (sql, params = []) => {
+      if (/FROM candidate_numbers/.test(sql)) {
+        return [{ student_number: params[1] === 10 ? 'COM/073/23' : 'COM/072/23', units: ['CSC101 · Introduction'] }];
+      }
+      return [{ ...student() }];
+    },
     queryOne: async (sql) => {
+      if (/FROM candidate_numbers/.test(sql)) return { total: registeredCandidatesTotal };
       if (/count\(\*\)::int AS total/.test(sql)) return { total: 1 };
       if (/role = 'student'/.test(sql)) {
         const row = student();
@@ -128,6 +135,7 @@ before(async () => {
 after(() => server.close());
 beforeEach(() => {
   resetRecords();
+  registeredCandidatesTotal = 26;
   auditActions.length = 0;
   authCalls.length = 0;
   emailCalls.length = 0;
@@ -157,6 +165,22 @@ describe('student account management routes', () => {
     for (const role of ['student', 'lecturer']) {
       assert.equal((await api('/api/admin/students', role)).status, 403);
     }
+  });
+
+  test('admin and finance staff can read the paginated registered-but-not-signed-up list', async () => {
+    for (const role of ['admin', 'staff']) {
+      const response = await api('/api/admin/students/registered-not-signed-up?page=2&pageSize=10', role);
+      assert.equal(response.status, 200);
+      assert.deepEqual(response.json.students, [{ student_number: 'COM/073/23', units: ['CSC101 · Introduction'] }]);
+      assert.equal(response.json.page, 2);
+      assert.equal(response.json.pageSize, 10);
+      assert.equal(response.json.total, 26);
+      assert.equal(response.json.totalPages, 3);
+    }
+    for (const role of ['student', 'lecturer']) {
+      assert.equal((await api('/api/admin/students/registered-not-signed-up', role)).status, 403);
+    }
+    assert.deepEqual(emailCalls, []);
   });
 
   test('only admins may deactivate/reactivate students; deactivation requires and audits a reason', async () => {

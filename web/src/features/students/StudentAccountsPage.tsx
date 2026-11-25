@@ -22,6 +22,19 @@ interface StudentPage {
   totalPages: number;
 }
 
+interface RegisteredStudent {
+  student_number: string;
+  units: string[];
+}
+
+interface RegisteredStudentPage {
+  students: RegisteredStudent[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
 const dateLabel = (value: string | null) => value
   ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(value))
   : 'Not available';
@@ -33,6 +46,8 @@ export function StudentAccountsPage() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<'all' | 'active' | 'inactive'>('all');
   const [page, setPage] = useState(1);
+  const [registeredPage, setRegisteredPage] = useState(1);
+  const [tab, setTab] = useState<'accounts' | 'registered'>('accounts');
   const [deactivating, setDeactivating] = useState<StudentAccount | null>(null);
   const [reason, setReason] = useState('');
   const [resetSent, setResetSent] = useState<string | null>(null);
@@ -41,6 +56,13 @@ export function StudentAccountsPage() {
     queryKey: ['admin', 'students', search, status, page],
     queryFn: () => api.get<StudentPage>(
       `/admin/students?q=${encodeURIComponent(search)}&status=${status}&page=${page}&pageSize=25`,
+    ),
+  });
+  const registeredQuery = useQuery({
+    queryKey: ['admin', 'students', 'registered-not-signed-up', registeredPage],
+    enabled: tab === 'registered',
+    queryFn: () => api.get<RegisteredStudentPage>(
+      `/admin/students/registered-not-signed-up?page=${registeredPage}&pageSize=25`,
     ),
   });
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['admin', 'students'] });
@@ -81,6 +103,29 @@ export function StudentAccountsPage() {
         subtitle={isAdmin ? 'Search accounts and manage access. Financial records are not shown here.' : 'Read-only student account directory.'}
       />
 
+      <div className="mb-4 flex flex-wrap gap-2" role="tablist" aria-label="Student account lists">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'accounts'}
+          className="rounded-full border border-line px-4 py-2 text-sm font-semibold aria-selected:border-line-active aria-selected:bg-bg-tertiary"
+          onClick={() => setTab('accounts')}
+        >
+          Student accounts
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'registered'}
+          className="rounded-full border border-line px-4 py-2 text-sm font-semibold aria-selected:border-line-active aria-selected:bg-bg-tertiary"
+          onClick={() => setTab('registered')}
+        >
+          Registered, not signed up
+        </button>
+      </div>
+
+      {tab === 'accounts' && (
+      <>
       <section className="card mb-6 grid gap-4 md:grid-cols-[1fr_auto] md:items-end" aria-label="Student account filters">
         <Field label="Search name, email or student number">
           <input
@@ -207,6 +252,47 @@ export function StudentAccountsPage() {
 
       {resetSent && <p role="status" className="mt-4 text-sm text-brand-teal-lt">Password-reset email sent to {resetSent}.</p>}
       <ErrorNote error={updateStudent.error ?? resetPassword.error} />
+      </>
+      )}
+
+      {tab === 'registered' && (
+        <section role="tabpanel" aria-label="Registered, not signed up">
+          {registeredQuery.isLoading ? <Spinner label="Loading registered students…" /> : null}
+          <ErrorNote error={registeredQuery.error} />
+          {registeredQuery.data?.students.length === 0 && <Empty>No registered student numbers are missing accounts.</Empty>}
+          {registeredQuery.data && registeredQuery.data.students.length > 0 && (
+            <>
+              <div className="overflow-x-auto rounded-lg border border-line">
+                <table className="w-full min-w-[560px] text-left text-sm">
+                  <thead className="bg-bg-tertiary text-xs uppercase text-ink-secondary">
+                    <tr>
+                      <th scope="col" className="px-4 py-3">Student number</th>
+                      <th scope="col" className="px-4 py-3">Registered units</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-line">
+                    {registeredQuery.data.students.map((student) => (
+                      <tr key={student.student_number}>
+                        <td className="px-4 py-3 font-semibold">{student.student_number}</td>
+                        <td className="px-4 py-3">{student.units.length ? student.units.join(', ') : 'No unit registrations'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-4 flex items-center justify-between gap-4">
+                <span className="text-sm text-ink-secondary">
+                  {registeredQuery.data.total} students · Page {registeredQuery.data.page} of {Math.max(registeredQuery.data.totalPages, 1)}
+                </span>
+                <div className="flex gap-2">
+                  <Button variant="secondary" disabled={registeredPage <= 1} onClick={() => setRegisteredPage((value) => value - 1)}>Previous</Button>
+                  <Button variant="secondary" disabled={registeredPage >= registeredQuery.data.totalPages} onClick={() => setRegisteredPage((value) => value + 1)}>Next</Button>
+                </div>
+              </div>
+            </>
+          )}
+        </section>
+      )}
     </div>
   );
 }

@@ -32,6 +32,10 @@ const listSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(50).default(25),
 });
+const registeredSchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(25),
+});
 
 const updateSchema = z.object({
   isActive: z.boolean(),
@@ -43,6 +47,15 @@ const updateSchema = z.object({
 });
 
 const STUDENT_COLUMNS = 'id, name, email, student_id, is_active, created_at';
+const UNREGISTERED_CTE = `WITH candidate_numbers AS (
+  SELECT public.normalize_student_number(student_id) AS student_number
+  FROM unit_registrations
+  WHERE public.normalize_student_number(student_id) IS NOT NULL
+  UNION
+  SELECT public.normalize_student_number(student_number) AS student_number
+  FROM public.student_registry
+  WHERE public.normalize_student_number(student_number) IS NOT NULL
+)`;
 
 async function setAuthBan(userId, duration) {
   const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, { ban_duration: duration });
@@ -90,6 +103,49 @@ router.get(
 
     res.json({
       students,
+      page,
+      pageSize,
+      total: count.total,
+      totalPages: Math.ceil(count.total / pageSize),
+    });
+  }),
+);
+
+router.get(
+  '/registered-not-signed-up',
+  listLimiter,
+  asyncHandler(async (req, res) => {
+    if (!['admin', 'staff'].includes(req.user.role)) throw new HttpError(403, 'Finance staff access only.');
+    const { page, pageSize } = registeredSchema.parse(req.query);
+    const unmatched = `NOT EXISTS (
+      SELECT 1 FROM profiles p WHERE p.student_id = c.student_number
+    )`;
+    const [count, rows] = await Promise.all([
+      queryOne(`${UNREGISTERED_CTE}
+        SELECT count(*)::int AS total
+        FROM candidate_numbers c
+        WHERE ${unmatched}`),
+      query(`${UNREGISTERED_CTE}
+        SELECT c.student_number,
+               COALESCE(
+                 array_agg(DISTINCT CONCAT_WS(' · ', NULLIF(u.unit_code, ''), NULLIF(u.unit_name, ''))
+                   ORDER BY CONCAT_WS(' · ', NULLIF(u.unit_code, ''), NULLIF(u.unit_name, '')))
+                   FILTER (WHERE u.id IS NOT NULL),
+                 ARRAY[]::text[]
+               ) AS units
+        FROM candidate_numbers c
+        LEFT JOIN unit_registrations r
+          ON public.normalize_student_number(r.student_id) = c.student_number
+        LEFT JOIN exam_units u ON u.id = r.exam_unit_id
+        WHERE ${unmatched}
+        GROUP BY c.student_number
+        ORDER BY c.student_number
+        LIMIT $1 OFFSET $2`,
+      [pageSize, (page - 1) * pageSize]),
+    ]);
+
+    res.json({
+      students: rows,
       page,
       pageSize,
       total: count.total,
